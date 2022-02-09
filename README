@@ -1,43 +1,30 @@
-AVS to BluRay SUP/PGS and BDN XML
+ASS/SSA to BluRay SUP/PGS and BDN XML
 ---------------------------------
 
-This program can be used to transform AviSynth scripts, which produce RGBA
-output, to BDN XML+PNG format. This in turn can be transformed into a SUP file,
-which can be used to master a BluRay disc with subtitles.
+This program can be used to transform ass or ssa subtitles to BDN XML+PNG format.
+This in turn can be transformed into a SUP file, which can be used to master a
+BluRay disc with subtitles.
 
 Usage instructions:
 
 0. If you want to build it:
-     i586-mingw32msvc-gcc avs2bdnxml.c -o avs2bdnxml.exe -lpng -lz -lvfw32 \
-       -Llib/ -O3 -Iinc/
+     cmake -Bbuild -DCMAKE_BUILD_TYPE=Release .
+     cmake --build build
 
 1. Prepare subtitles. You can either produce subtitles in a normal format like
-   SRT or ASS/SSA, or produce an RGBA video beforehand.
+   ASS/SSA.
 
-2. Create an AviSynth script. If you made a regular subtitle file, you can use
-   something like this:
+2. Run the program:
+     ass2bdnxml  -v 1080p -f 23.976 -o output.sup input.ass
 
-     video=AviSource("video.avi")
-     # This requires at least VSFilter 2.39
-     MaskSub("subtitles.ext",video.width,video.height,
-             video.framerate,video.framecount)
-
-   If you created an RGBA video, do something like this instead:
-
-     AviSource("subtitles_RGBA.avi")
-     FlipVertical()
-
-3. Run the program:
-     avs2bdnxml input.avs Undefined und 1080p 23.976 output.xml
-
-4. For some programs, you have to convert the PNG files to 8bit RGBA palette.
+3. For some programs, you have to convert the PNG files to 8bit RGBA palette.
    This doesn't apply to BDSupEdit. You can do it with a tool like pngquant or
    pngnq.
 
      pngquant: http://www.libpng.org/pub/png/apps/pngquant.html
      pngnq:    http://pngnq.sourceforge.net/
 
-5. You get a BDN XML file in the following format:
+4. You get a BDN XML file in the following format:
 
      <?xml version="1.0" encoding="UTF-8"?>
      <BDN Version="0.93" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
@@ -56,7 +43,7 @@ Usage instructions:
      </Events>
      </BDN>
 
-6. Use a program like BDSupEdit or BDSup2Sub to convert the BDN XML
+5. Use a program like BDSupEdit or BDSup2Sub to convert the BDN XML
    to a BD-SUP file. The rest is left as an exercise for the reader.
 
      BDSupEdit: http://forum.doom9.org/showthread.php?t=146157
