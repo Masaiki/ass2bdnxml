@@ -1,0 +1,22 @@
+CC=gcc
+CFLAGS=-DLINUX -O3 -Wall -DLE_ARCH
+LDFLAGS=-lpng -lz
+OBJS=avs2bdnxml.o auto_split.o palletize.o sup.o sort.o
+EXE=avs2bdnxml
+
+%.o: %.c
+	$(CC) -c $< $(CFLAGS)
+
+$(EXE): $(OBJS)
+	$(CC) -o $(EXE) $(OBJS) $(LDFLAGS)
+
+all: $(EXE)
+
+dist: clean all
+	strip -s $(EXE)
+	upx-ucl --best $(EXE)
+	rm -f $(OBJS)
+
+.phony clean:
+	rm -f $(EXE) $(OBJS)
+
