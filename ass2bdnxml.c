@@ -149,8 +149,8 @@ int open_file_ass( char *psz_filename, ass_input_t **p_handle, stream_info_t *p_
 	ass_set_fonts(ass_renderer, NULL, NULL, ASS_FONTPROVIDER_AUTODETECT, NULL, 1);
 
 	FILE *fp = fopen(psz_filename, "rb");
-    if (!fp)
-        return 1;
+	if (!fp)
+		return 1;
 	size_t bufsize;
 	char *buf = read_file_bytes(fp, &bufsize);
 	const char* cs = detect_bom(buf, bufsize);
@@ -382,34 +382,34 @@ void swap_rb (stream_info_t *s_info, char *img, char *out)
 	}
 }
 
-int detect_sse2 ()
-{
-	static int detection = -1;
-	unsigned int func = 0x00000001;
-	unsigned int eax, ebx, ecx, edx;
-
-	if (detection != -1)
-		return detection;
-
-	asm volatile
-	(
-		"cpuid\n"
-		: "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-		: "a" (func)
-	);
-
-	/* SSE2:  edx & 0x04000000
-	 * SSSE3: ecx & 0x00000200
-	 */
-	detection = (edx & 0x04000000) ? 1 : 0;
-
-	if (detection)
-		fprintf(stderr, "CPU: Using SSE2 optimized functions.\n");
-	else
-		fprintf(stderr, "CPU: Using pure C functions.\n");
-
-	return detection;
-}
+//int detect_sse2 ()
+//{
+//	static int detection = -1;
+//	unsigned int func = 0x00000001;
+//	unsigned int eax, ebx, ecx, edx;
+//
+//	if (detection != -1)
+//		return detection;
+//
+//	asm volatile
+//	(
+//		"cpuid\n"
+//		: "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
+//		: "a" (func)
+//	);
+//
+//	/* SSE2:  edx & 0x04000000
+//	 * SSSE3: ecx & 0x00000200
+//	 */
+//	detection = (edx & 0x04000000) ? 1 : 0;
+//
+//	if (detection)
+//		fprintf(stderr, "CPU: Using SSE2 optimized functions.\n");
+//	else
+//		fprintf(stderr, "CPU: Using pure C functions.\n");
+//
+//	return detection;
+//}
 
 //int is_identical (stream_info_t *s_info, char *img, char *img_old)
 //{
@@ -474,7 +474,7 @@ void mk_timecode (int frame, int fps, char *buf) /* buf must have length 12 (inc
 void print_usage ()
 {
 	fprintf(stderr,
-		"ass2bdnxml 2.08\n\n"
+		"ass2bdnxml 1.00\n\n"
 		"Usage: ass2bdnxml [options] -o output input\n\n"
 		"Input has to be an ass or a ssa subtitle file\n\n"
 		"  -o, --output <string>        Output file in BDN XML format\n"
@@ -659,22 +659,16 @@ struct framerate_entry_s
 	int fps_den;
 };
 
+// codes from assrender, modified
+
 #define _r(c) (( (c) >> 24))
 #define _g(c) ((((c) >> 16) & 0xFF))
 #define _b(c) ((((c) >> 8)  & 0xFF))
 #define _a(c) (( (c)        & 0xFF))
 
 #define div256(x)   (((x + 128)   >> 8))
-#define div65536(x) (((x + 32768) >> 16))
 #define div255(x)   ((div256(x + div256(x))))
-#define div65535(x) ((div65536(x + div65536(x))))
 
-#define blend(srcA, srcC, dstC) \
-    ((div255(srcA * srcC + (255 - srcA) * dstC)))
-#define blend2(src1A, src1C, src2A, src2C, dstC) \
-    ((div255(((src1A * src1C + src2A * src2C + (510 - src1A - src2A) * dstC + 1) >> 1))))
-#define blend4(src1A, src1C, src2A, src2C, src3A, src3C, src4A, src4C, dstC) \
-    ((div255(((src1A * src1C + src2A * src2C + src3A * src3C + src4A * src4C + (1020 - src1A - src2A - src3A - src4A) * dstC + 2) >> 2))))
 #define scale(srcA, srcC, dstC) \
     ((srcA * srcC + (255 - srcA) * dstC))
 #define dblend(srcA, srcC, dstA, dstC, outA) \
@@ -740,6 +734,8 @@ void make_sub_img(ASS_Image *img, uint8_t *sub_img, uint32_t width)
 		img = img->next;
 	}
 }
+
+// codes from assrender end here
 
 int main (int argc, char *argv[])
 {
@@ -1016,8 +1012,8 @@ int main (int argc, char *argv[])
 	/* Get timecode offset. */
 	to = parse_tc(t_offset, fps);
 
-	/* Detect CPU features */
-	detect_sse2();
+	/* Detect CPU features
+	detect_sse2();*/
 
 	/* Get video info and allocate buffer */
 	if (open_file_ass(ass_filename, &ass_context, s_info))
@@ -1309,8 +1305,7 @@ int main (int argc, char *argv[])
 	close_file_ass(ass_context);
 
 	/* Give runtime */
-	if (0)
-		fprintf(stderr, "Time elapsed: %lu\n", time(NULL) - bench_start);
+	fprintf(stderr, "Time elapsed: %lu\n", time(NULL) - bench_start);
 
 	return 0;
 }

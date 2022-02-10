@@ -15,7 +15,7 @@ Usage instructions:
    ASS/SSA.
 
 2. Run the program:
-     ass2bdnxml  -v 1080p -f 23.976 -o output.sup input.ass
+     ass2bdnxml  -v 1080p -f 23.976 -o output.xml input.ass
 
 3. For some programs, you have to convert the PNG files to 8bit RGBA palette.
    This doesn't apply to BDSupEdit. You can do it with a tool like pngquant or
