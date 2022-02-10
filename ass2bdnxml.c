@@ -802,7 +802,7 @@ int main (int argc, char *argv[])
 	int ugly = 0;
 	int progress_step = 1000;
 	int buffer_opt;
-	int bench_start = time(NULL);
+	long long bench_start = time(NULL);
 	int fps_num = 25, fps_den = 1;
 	int sup_output = 0;
 	int xml_output = 0;
@@ -1305,7 +1305,7 @@ int main (int argc, char *argv[])
 	close_file_ass(ass_context);
 
 	/* Give runtime */
-	fprintf(stderr, "Time elapsed: %lu\n", time(NULL) - bench_start);
+	fprintf(stderr, "Time elapsed: %lld\n", time(NULL) - bench_start);
 
 	return 0;
 }
