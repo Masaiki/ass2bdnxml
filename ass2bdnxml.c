@@ -37,20 +37,6 @@
 #define MAX_PATH 1024
 #define max(a,b) ((a)>(b)?(a):(b))
 
-#ifndef LINUX
-static int64_t gcd( int64_t a, int64_t b )
-{
-    while (1)
-    {
-        int64_t c = a % b;
-        if( !c )
-            return b;
-        a = b;
-        b = c;
-    }
-}
-#endif
-
 static char *read_file_bytes(FILE *fp, size_t *bufsize)
 {
 	int res;
@@ -104,6 +90,28 @@ static const char *detect_bom(const char *buf, const size_t bufsize) {
 	}
 	return "UTF-8";
 }
+
+#if defined(_WIN32)
+char *rindex(char *s, int c) {
+	int len = strlen(s);
+	for (int i = len - 1; i > -1; --i)
+		if (s[i] == c) return s + i;
+	return NULL;
+}
+#else
+char *_fullpath(char *absPath, const char *relPath, size_t maxLength) {
+	return realpath(relPath, absPath);
+}
+#include <libgen.h>
+void _splitpath(char *path, char *drive, char *dir, char *fname, char *ext){
+	if (drive) drive[0] = 0;
+	if (dir) {
+		char *tmp = dirname(path);
+		strcpy(dir, tmp);
+	}
+}
+#include <errno.h>
+#endif
 
 typedef struct {
 	ASS_Renderer *ass_renderer;
@@ -510,13 +518,6 @@ void print_usage ()
 		"    -u0 -e0 -n0 -z0 -o output.xml input.ass\n"
 		"  (Input and output are required settings. The rest are set to default.)\n"
 		);
-}
-
-char *rindex(char *s, int c) {
-	int len = strlen(s);
-	for (int i = len - 1; i > -1; --i)
-		if (s[i] == c) return s + i;
-	return NULL;
 }
 
 int is_extension(char *filename, char *check_ext)
