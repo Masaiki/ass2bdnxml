@@ -1050,6 +1050,7 @@ int main (int argc, char *argv[])
         }
 	}
 
+    ass_set_storage_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
 	ass_set_frame_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
 
     if (additional_font_dir)
