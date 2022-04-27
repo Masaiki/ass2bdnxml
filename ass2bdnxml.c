@@ -154,8 +154,6 @@ int open_file_ass( char *psz_filename, ass_input_t **p_handle, stream_info_t *p_
 	if (!ass_renderer)
 		return 1;
 
-	ass_set_fonts(ass_renderer, NULL, NULL, ASS_FONTPROVIDER_AUTODETECT, NULL, 1);
-
 	FILE *fp = fopen(psz_filename, "rb");
 	if (!fp)
 		return 1;
@@ -778,6 +776,7 @@ int main (int argc, char *argv[])
 	char *intc_buf = NULL, *outtc_buf = NULL;
 	char *drop_frame = NULL;
 	char png_dir[MAX_PATH + 1] = {0};
+    const char *additional_font_dir = NULL;
 	crop_t crops[2];
 	pic_t pic;
 	uint32_t *pal = NULL;
@@ -845,11 +844,12 @@ int main (int argc, char *argv[])
 			, {"ugly",         required_argument, 0, 'u'}
 			, {"null-xml",     required_argument, 0, 'n'}
 			, {"stricter",     required_argument, 0, 'z'}
+            , {"font-dir",     required_argument, 0, 'g'}
 			, {0, 0, 0, 0}
 			};
 			int option_index = 0;
 
-			c = getopt_long(argc, argv, "o:j:c:t:l:v:f:x:y:d:b:s:m:e:p:a:u:n:z:", long_options, &option_index);
+			c = getopt_long(argc, argv, "o:j:c:t:l:v:f:x:y:d:b:s:m:e:p:a:u:n:z:g:", long_options, &option_index);
 			if (c == -1)
 				break;
 			switch (c)
@@ -917,6 +917,9 @@ int main (int argc, char *argv[])
 				case 'z':
 					stricter_string = optarg;
 					break;
+                case 'g':
+                    additional_font_dir = optarg;
+                    break;
 				default:
 					print_usage();
 					return 0;
@@ -1048,6 +1051,11 @@ int main (int argc, char *argv[])
 	}
 
 	ass_set_frame_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
+
+    if (additional_font_dir)
+        ass_set_fonts_dir(ass_context->ass_library, additional_font_dir);
+
+    ass_set_fonts(ass_context->ass_renderer, NULL, NULL, ASS_FONTPROVIDER_AUTODETECT, NULL, 1);
 
 	in_img  = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char)); /* allocate + 16 for alignment, and + n * 16 for over read/write */
 	old_img = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char)); /* see above */
