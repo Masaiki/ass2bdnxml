@@ -491,9 +491,8 @@ void print_usage ()
 		"  -c, --count <integer>        Number of input frames to process\n"
 		"  -t, --trackname <string>     Name of track, like: Undefined\n"
 		"  -l, --language <string>      Language code, like: und\n"
-		"  -v, --video-format <string>  Either of: 480i, 480p,  576i,\n"
-		"                                          720p, 1080i, 1080p\n"
-		"  -f, --fps <float>            Either of: 23.976, 24, 25, 29.97, 50, 59.94\n"
+		"  -v, --video-format <string>  Either of: 720p, 1080p, 2k, or with custom resolution like 720*480\n"
+		"  -f, --fps <float>            Either of: 23.976, 24, 25, 30, 29.97, 50, 59.94, 60, or custom fps like 15/1\n"
 		"  -x, --x-offset <integer>     X offset, for use with partial frames.\n"
 		"  -y, --y-offset <integer>     Y offset, for use with partial frames.\n"
 		"  -d, --t-offset <string>      Offset timecodes by this many frames or\n"
@@ -745,9 +744,11 @@ int main (int argc, char *argv[])
 	                                        , {"24", "24", 24, 0, 24, 1}
 	                                        , {"25", "25", 25, 0, 25, 1}
 	                                        , {"29.97", "29.97", 30, 0, 30000, 1001}
+                                            , {"30", "30", 30, 0, 30, 1}
 	                                        /*, {"29.97d", "29.97", 30000/1001.0, 1}*/
 	                                        , {"50", "50", 50, 0, 50, 1}
 	                                        , {"59.94", "59.94", 60, 0, 60000, 1001}
+                                            , {"60", "60", 60, 0, 60, 1}
 	                                        /*, {"59.94d", "59.94", 60000/1001.0, 1}*/
 	                                        , {NULL, NULL, 0, 0, 0, 0}
 	                                        };
@@ -1006,6 +1007,12 @@ int main (int argc, char *argv[])
 	}
 	if (!have_fps)
 	{
+        if (sscanf(frame_rate, "%d/%d", &fps_num, &fps_den) == 2){
+            drop_frame = "false";
+            s_info->i_fps_num = fps_num;
+            s_info->i_fps_den = fps_den;
+            have_fps = 1;
+        }
 		fprintf(stderr, "Error: Invalid framerate (%s).\n", frame_rate);
 		return 1;
 	}
@@ -1034,8 +1041,10 @@ int main (int argc, char *argv[])
 	}
 	if (!s_info->i_width || !s_info->i_height)
 	{
-		fprintf(stderr, "Error: Invalid video_format (%s).\n", video_format);
-		return 1;
+        if (sscanf(video_format,"%d*%d", &s_info->i_width, &s_info->i_width) != 2){
+            fprintf(stderr, "Error: Invalid video_format (%s).\n", video_format);
+            return 1;
+        }
 	}
 
 	ass_set_frame_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
