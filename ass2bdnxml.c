@@ -480,7 +480,7 @@ void mk_timecode (int frame, int fps, char *buf) /* buf must have length 12 (inc
 void print_usage ()
 {
 	fprintf(stderr,
-		"ass2bdnxml 1.00\n\n"
+		"ass2bdnxml 1.02\n\n"
 		"Usage: ass2bdnxml [options] -o output input\n\n"
 		"Input has to be an ass or a ssa subtitle file\n\n"
 		"  -o, --output <string>        Output file in BDN XML format\n"
@@ -510,6 +510,7 @@ void print_usage ()
 		"                               [on=1, off=0]\n"
 		"  -b, --buffer-opt <integer>   Optimize PG buffer size by image\n"
 		"                               splitting. [on=1, off=0]\n\n"
+        "  -g, --font-dir <string>      additional font dir for libass\n"
 		"Example:\n"
 		"  ass2bdnxml -t Undefined -l und -v 1080p -f 23.976 -a1 -p1 -b0 -m3 \\\n"
 		"    -u0 -e0 -n0 -z0 -o output.xml input.ass\n"
