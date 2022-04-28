@@ -1037,13 +1037,15 @@ int main (int argc, char *argv[])
 	char *video_formats[] = { "2k","1440p","1080p","720p" };
 	int video_format_widths[] = { 2560,2560,1920,1280 };
 	int video_format_heights[] = { 1440,1440,1080,720 };
+    int video_format_matched = 0;
 	for (int ii = 0; ii < 4; ++ii) {
 		if (!strcasecmp(video_format, video_formats[ii])) {
 			s_info->i_width = video_format_widths[ii];
 			s_info->i_height = video_format_heights[ii];
+            video_format_matched = 1;
 		}
 	}
-	if (!s_info->i_width || !s_info->i_height)
+	if (video_format && !video_format_matched)
 	{
         if (sscanf(video_format,"%d*%d", &s_info->i_width, &s_info->i_height) != 2){
             fprintf(stderr, "Error: Invalid video_format (%s).\n", video_format);
