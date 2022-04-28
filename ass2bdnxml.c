@@ -1045,7 +1045,7 @@ int main (int argc, char *argv[])
 	}
 	if (!s_info->i_width || !s_info->i_height)
 	{
-        if (sscanf(video_format,"%d*%d", &s_info->i_width, &s_info->i_width) != 2){
+        if (sscanf(video_format,"%d*%d", &s_info->i_width, &s_info->i_height) != 2){
             fprintf(stderr, "Error: Invalid video_format (%s).\n", video_format);
             return 1;
         }
