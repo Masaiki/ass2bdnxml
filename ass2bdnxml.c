@@ -120,10 +120,10 @@ typedef struct {
 } ass_input_t;
 
 typedef struct {
-    int i_width;
-    int i_height;
-    int i_fps_den;
-    int i_fps_num;
+	int i_width;
+	int i_height;
+	int i_fps_den;
+	int i_fps_num;
 } stream_info_t;
 
 void msg_callback(int level, const char *fmt, va_list va, void *data)
@@ -510,7 +510,7 @@ void print_usage ()
 		"                               [on=1, off=0]\n"
 		"  -b, --buffer-opt <integer>   Optimize PG buffer size by image\n"
 		"                               splitting. [on=1, off=0]\n\n"
-        "  -g, --font-dir <string>      additional font dir for libass\n"
+		"  -g, --font-dir <string>      additional font dir for libass\n"
 		"Example:\n"
 		"  ass2bdnxml -t Undefined -l und -v 1080p -f 23.976 -a1 -p1 -b0 -m3 \\\n"
 		"    -u0 -e0 -n0 -z0 -o output.xml input.ass\n"
@@ -669,9 +669,9 @@ struct framerate_entry_s
 #define div255(x)   ((div256(x + div256(x))))
 
 #define scale(srcA, srcC, dstC) \
-    ((srcA * srcC + (255 - srcA) * dstC))
+	((srcA * srcC + (255 - srcA) * dstC))
 #define dblend(srcA, srcC, dstA, dstC, outA) \
-    (((srcA * srcC * 255 + dstA * dstC * (255 - srcA) + (outA >> 1)) / outA))
+	(((srcA * srcC * 255 + dstA * dstC * (255 - srcA) + (outA >> 1)) / outA))
 
 void col2rgb(uint32_t *c, uint8_t *r, uint8_t *g, uint8_t *b)
 {
@@ -739,18 +739,18 @@ void make_sub_img(ASS_Image *img, uint8_t *sub_img, uint32_t width)
 int main (int argc, char *argv[])
 {
 	struct framerate_entry_s framerates[] = { {"23.976", "23.976", 24, 0, 24000, 1001}
-	                                        /*, {"23.976d", "23.976", 24000/1001.0, 1}*/
-	                                        , {"24", "24", 24, 0, 24, 1}
-	                                        , {"25", "25", 25, 0, 25, 1}
-	                                        , {"29.97", "29.97", 30, 0, 30000, 1001}
-                                            , {"30", "30", 30, 0, 30, 1}
-	                                        /*, {"29.97d", "29.97", 30000/1001.0, 1}*/
-	                                        , {"50", "50", 50, 0, 50, 1}
-	                                        , {"59.94", "59.94", 60, 0, 60000, 1001}
-                                            , {"60", "60", 60, 0, 60, 1}
-	                                        /*, {"59.94d", "59.94", 60000/1001.0, 1}*/
-	                                        , {NULL, NULL, 0, 0, 0, 0}
-	                                        };
+											/*, {"23.976d", "23.976", 24000/1001.0, 1}*/
+											, {"24", "24", 24, 0, 24, 1}
+											, {"25", "25", 25, 0, 25, 1}
+											, {"29.97", "29.97", 30, 0, 30000, 1001}
+											, {"30", "30", 30, 0, 30, 1}
+											/*, {"29.97d", "29.97", 30000/1001.0, 1}*/
+											, {"50", "50", 50, 0, 50, 1}
+											, {"59.94", "59.94", 60, 0, 60000, 1001}
+											, {"60", "60", 60, 0, 60, 1}
+											/*, {"59.94d", "59.94", 60000/1001.0, 1}*/
+											, {NULL, NULL, 0, 0, 0, 0}
+											};
 	char *ass_filename = NULL;
 	char *track_name = "Undefined";
 	char *language = "und";
@@ -777,7 +777,7 @@ int main (int argc, char *argv[])
 	char *intc_buf = NULL, *outtc_buf = NULL;
 	char *drop_frame = NULL;
 	char png_dir[MAX_PATH + 1] = {0};
-    const char *additional_font_dir = NULL;
+	const char *additional_font_dir = NULL;
 	crop_t crops[2];
 	pic_t pic;
 	uint32_t *pal = NULL;
@@ -845,7 +845,7 @@ int main (int argc, char *argv[])
 			, {"ugly",         required_argument, 0, 'u'}
 			, {"null-xml",     required_argument, 0, 'n'}
 			, {"stricter",     required_argument, 0, 'z'}
-            , {"font-dir",     required_argument, 0, 'g'}
+			, {"font-dir",     required_argument, 0, 'g'}
 			, {0, 0, 0, 0}
 			};
 			int option_index = 0;
@@ -918,9 +918,9 @@ int main (int argc, char *argv[])
 				case 'z':
 					stricter_string = optarg;
 					break;
-                case 'g':
-                    additional_font_dir = optarg;
-                    break;
+				case 'g':
+					additional_font_dir = optarg;
+					break;
 				default:
 					print_usage();
 					return 0;
@@ -1011,12 +1011,12 @@ int main (int argc, char *argv[])
 	}
 	if (!have_fps)
 	{
-        if (sscanf(frame_rate, "%d/%d", &fps_num, &fps_den) == 2){
-            drop_frame = "false";
-            s_info->i_fps_num = fps_num;
-            s_info->i_fps_den = fps_den;
-            have_fps = 1;
-        }
+		if (sscanf(frame_rate, "%d/%d", &fps_num, &fps_den) == 2){
+			drop_frame = "false";
+			s_info->i_fps_num = fps_num;
+			s_info->i_fps_den = fps_den;
+			have_fps = 1;
+		}
 		fprintf(stderr, "Error: Invalid framerate (%s).\n", frame_rate);
 		return 1;
 	}
@@ -1037,29 +1037,29 @@ int main (int argc, char *argv[])
 	char *video_formats[] = { "2k","1440p","1080p","720p" };
 	int video_format_widths[] = { 2560,2560,1920,1280 };
 	int video_format_heights[] = { 1440,1440,1080,720 };
-    int video_format_matched = 0;
+	int video_format_matched = 0;
 	for (int ii = 0; ii < 4; ++ii) {
 		if (!strcasecmp(video_format, video_formats[ii])) {
 			s_info->i_width = video_format_widths[ii];
 			s_info->i_height = video_format_heights[ii];
-            video_format_matched = 1;
+			video_format_matched = 1;
 		}
 	}
 	if (video_format && !video_format_matched)
 	{
-        if (sscanf(video_format,"%d*%d", &s_info->i_width, &s_info->i_height) != 2){
-            fprintf(stderr, "Error: Invalid video_format (%s).\n", video_format);
-            return 1;
-        }
+		if (sscanf(video_format,"%d*%d", &s_info->i_width, &s_info->i_height) != 2){
+			fprintf(stderr, "Error: Invalid video_format (%s).\n", video_format);
+			return 1;
+		}
 	}
 
-    ass_set_storage_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
+	ass_set_storage_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
 	ass_set_frame_size(ass_context->ass_renderer, s_info->i_width, s_info->i_height);
 
-    if (additional_font_dir)
-        ass_set_fonts_dir(ass_context->ass_library, additional_font_dir);
+	if (additional_font_dir)
+		ass_set_fonts_dir(ass_context->ass_library, additional_font_dir);
 
-    ass_set_fonts(ass_context->ass_renderer, NULL, NULL, ASS_FONTPROVIDER_AUTODETECT, NULL, 1);
+	ass_set_fonts(ass_context->ass_renderer, NULL, NULL, ASS_FONTPROVIDER_AUTODETECT, NULL, 1);
 
 	in_img  = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char)); /* allocate + 16 for alignment, and + n * 16 for over read/write */
 	old_img = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char)); /* see above */
