@@ -31,7 +31,7 @@ jobs:
             exe_ext: ""
             pkgconf: pkgconf
           - artifact_name: ass2bdnxml-macos-x64
-            runner: macos-13
+            runner: macos-15-intel
             triplet: x64-osx
             host_triplet: x64-osx
             compiler: clang
@@ -94,6 +94,20 @@ jobs:
           } else {
             & "$env:GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           }
+
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool
+
+      - name: Install macOS build prerequisites
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew update
+          brew install ninja autoconf autoconf-archive automake libtool
 
       - name: Configure and build
         if: runner.os != 'Windows'
