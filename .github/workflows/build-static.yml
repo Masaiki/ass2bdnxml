@@ -106,14 +106,14 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool
+          sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool nasm
 
       - name: Install macOS build prerequisites
         if: runner.os == 'macOS'
         shell: bash
         run: |
           brew update
-          brew install ninja autoconf autoconf-archive automake libtool
+          brew install ninja autoconf autoconf-archive automake libtool nasm
 
       - name: Install vcpkg packages
         shell: pwsh
