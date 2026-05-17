@@ -1,0 +1,127 @@
+name: Build static binaries
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact_name: ass2bdnxml-linux-x64
+            runner: ubuntu-24.04
+            triplet: x64-linux
+            host_triplet: x64-linux
+            compiler: clang
+            build_dir: build/linux-x64
+            exe_ext: ""
+            pkgconf: pkgconf
+          - artifact_name: ass2bdnxml-linux-arm64
+            runner: ubuntu-24.04-arm
+            triplet: arm64-linux
+            host_triplet: arm64-linux
+            compiler: clang
+            build_dir: build/linux-arm64
+            exe_ext: ""
+            pkgconf: pkgconf
+          - artifact_name: ass2bdnxml-macos-x64
+            runner: macos-13
+            triplet: x64-osx
+            host_triplet: x64-osx
+            compiler: clang
+            build_dir: build/macos-x64
+            exe_ext: ""
+            pkgconf: pkgconf
+          - artifact_name: ass2bdnxml-macos-arm64
+            runner: macos-15
+            triplet: arm64-osx
+            host_triplet: arm64-osx
+            compiler: clang
+            build_dir: build/macos-arm64
+            exe_ext: ""
+            pkgconf: pkgconf
+          - artifact_name: ass2bdnxml-windows-x64
+            runner: windows-2022
+            triplet: x64-windows-static
+            host_triplet: x64-windows
+            compiler: clang.exe
+            build_dir: build/windows-x64
+            exe_ext: ".exe"
+            pkgconf: pkgconf.exe
+            vcvars: vcvars64.bat
+          - artifact_name: ass2bdnxml-windows-arm64
+            runner: windows-11-arm
+            triplet: arm64-windows-static
+            host_triplet: arm64-windows
+            compiler: clang.exe
+            build_dir: build/windows-arm64
+            exe_ext: ".exe"
+            pkgconf: pkgconf.exe
+            vcvars: vcvarsarm64.bat
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg "$env:GITHUB_WORKSPACE/vcpkg"
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            vcpkg/downloads
+            vcpkg/buildtrees
+            vcpkg/packages
+            vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            & "$env:GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+          } else {
+            & "$env:GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          }
+
+      - name: Configure and build
+        if: runner.os != 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S . -B "${{ matrix.build_dir }}" -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=${{ matrix.compiler }} `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
+            -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
+            -DPKG_CONFIG_EXECUTABLE="$env:GITHUB_WORKSPACE/${{ matrix.build_dir }}/vcpkg_installed/${{ matrix.host_triplet }}/tools/pkgconf/${{ matrix.pkgconf }}"
+          cmake --build "${{ matrix.build_dir }}" --config Release
+
+      - name: Configure and build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\${{ matrix.vcvars }}"
+          $pkgconf = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.build_dir }}\vcpkg_installed\${{ matrix.host_triplet }}\tools\pkgconf\${{ matrix.pkgconf }}"
+          $command = 'call "' + $vcvars + '" && cmake -S . -B "${{ matrix.build_dir }}" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.compiler }} -DCMAKE_TOOLCHAIN_FILE="' + $env:GITHUB_WORKSPACE + '\vcpkg\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} -DPKG_CONFIG_EXECUTABLE="' + $pkgconf + '" && cmake --build "${{ matrix.build_dir }}" --config Release'
+          cmd.exe /d /s /c $command
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.build_dir }}/ass2bdnxml${{ matrix.exe_ext }}
+          if-no-files-found: error
