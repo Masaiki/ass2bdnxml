@@ -680,12 +680,13 @@ void col2rgb(uint32_t *c, uint8_t *r, uint8_t *g, uint8_t *b)
 	*b = _b(*c);
 }
 
-void make_sub_img(ASS_Image *img, uint8_t *sub_img, uint32_t width)
+void make_sub_img(ASS_Image *img, uint8_t *sub_img, int width, int height)
 {
 	uint8_t c1, c2, c3, a, a1;
 	uint8_t *src;
 	uint8_t *dstC1, *dstC2, *dstC3, *dstA, *dst;
 	uint32_t dsta;
+	int x_start, y_start, x_end, y_end;
 
 	while (img) {
 		if (img->w == 0 || img->h == 0) {
@@ -693,18 +694,26 @@ void make_sub_img(ASS_Image *img, uint8_t *sub_img, uint32_t width)
 			img = img->next;
 			continue;
 		}
+		x_start = img->dst_x < 0 ? -img->dst_x : 0;
+		y_start = img->dst_y < 0 ? -img->dst_y : 0;
+		x_end = img->dst_x + img->w > width ? width - img->dst_x : img->w;
+		y_end = img->dst_y + img->h > height ? height - img->dst_y : img->h;
+		if (x_start >= x_end || y_start >= y_end) {
+			img = img->next;
+			continue;
+		}
 		col2rgb(&img->color, &c1, &c2, &c3);
 		a1 = 255 - _a(img->color); // transparency
 
-		src = img->bitmap;
-		dst = sub_img + (img->dst_y * width + img->dst_x)*4;
+		src = img->bitmap + y_start * img->stride + x_start;
+		dst = sub_img + ((img->dst_y + y_start) * width + img->dst_x + x_start) * 4;
 		dstC1 = dst+2;
 		dstC2 = dst+1;
 		dstC3 = dst+0;
 		dstA = dst+3;
 
-		for (int i = 0; i < img->h; i++) {
-			for (int j = 0; j < img->w*4; j+=4) {
+		for (int i = y_start; i < y_end; i++) {
+			for (int j = 0; j < (x_end - x_start) * 4; j+=4) {
 				a = div255(src[j/4] * a1);
 				if (a) {
 					if (dstA[j]) {
@@ -1128,7 +1137,7 @@ int main (int argc, char *argv[])
 
 		ASS_Image *img = ass_render_frame(ass_context->ass_renderer, ass_context->ass, ts, &changed);
 		memset(in_img, 0, s_info->i_width *s_info->i_height * 4);
-		make_sub_img(img, in_img, s_info->i_width);
+		make_sub_img(img, in_img, s_info->i_width, s_info->i_height);
 
 		checked_empty = 0;
 
