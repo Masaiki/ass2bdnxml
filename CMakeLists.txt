@@ -13,6 +13,9 @@ endif()
 
 find_package(ZLIB REQUIRED)
 find_package(PNG REQUIRED)
+if(WIN32)
+    find_package(getopt CONFIG REQUIRED)
+endif()
 
 find_package(PkgConfig REQUIRED)
 PKG_CHECK_MODULES(LIBASS REQUIRED libass>=0.15.0)
@@ -28,3 +31,6 @@ add_executable(ass2bdnxml ${SOURCES})
 
 target_include_directories(ass2bdnxml PRIVATE ${LIBASS_INCLUDE_DIRS})
 target_link_libraries(ass2bdnxml PRIVATE ZLIB::ZLIB PNG::PNG ${LIBASS_LINK_LIBRARIES})
+if(WIN32)
+    target_link_libraries(ass2bdnxml PRIVATE $<IF:$<TARGET_EXISTS:getopt::getopt_shared>,getopt::getopt_shared,getopt::getopt_static>)
+endif()

@@ -36,6 +36,9 @@
 
 #define MAX_PATH 1024
 #define max(a,b) ((a)>(b)?(a):(b))
+#if defined(_WIN32)
+#define strcasecmp _stricmp
+#endif
 
 static char *read_file_bytes(FILE *fp, size_t *bufsize)
 {

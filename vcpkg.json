@@ -1,0 +1,15 @@
+{
+  "dependencies": [
+    {
+      "name": "pkgconf",
+      "host": true
+    },
+    "libass",
+    "libpng",
+    "zlib",
+    {
+      "name": "getopt",
+      "platform": "windows"
+    }
+  ]
+}
