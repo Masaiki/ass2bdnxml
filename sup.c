@@ -310,7 +310,7 @@ static void write_palette (FILE *fh, int dts, int palette, uint32_t *pal, int co
 
 	for (i = 1; i < 256 && pal[i]; i++)
 		entries++;
-	write_header(fh, dts, 0, 20, sizeof(p) + entries * 5);
+	write_header(fh, dts, dts, 20, sizeof(p) + entries * 5);
 
 	p.palette = palette;
 	conv_sup_palette(&p);
@@ -405,7 +405,7 @@ static void write_image (FILE *fh, int timestamp, int dts, int picture, int w, i
 
 static void write_marker (FILE *fh, int time)
 {
-	write_header(fh, time, 0, 0x80, 0);
+	write_header(fh, time, time, 0x80, 0);
 }
 
 typedef struct sup_pcs_end_s
