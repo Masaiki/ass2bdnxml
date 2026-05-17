@@ -18,6 +18,7 @@ jobs:
             runner: ubuntu-24.04
             triplet: x64-linux
             host_triplet: x64-linux
+            pkg_config_libdir_sep: ":"
             compiler: clang
             build_dir: build/linux-x64
             exe_ext: ""
@@ -26,6 +27,7 @@ jobs:
             runner: ubuntu-24.04-arm
             triplet: arm64-linux
             host_triplet: arm64-linux
+            pkg_config_libdir_sep: ":"
             compiler: clang
             build_dir: build/linux-arm64
             exe_ext: ""
@@ -34,6 +36,7 @@ jobs:
             runner: macos-15-intel
             triplet: x64-osx
             host_triplet: x64-osx
+            pkg_config_libdir_sep: ":"
             compiler: clang
             build_dir: build/macos-x64
             exe_ext: ""
@@ -42,6 +45,7 @@ jobs:
             runner: macos-15
             triplet: arm64-osx
             host_triplet: arm64-osx
+            pkg_config_libdir_sep: ":"
             compiler: clang
             build_dir: build/macos-arm64
             exe_ext: ""
@@ -50,6 +54,7 @@ jobs:
             runner: windows-2022
             triplet: x64-windows-static
             host_triplet: x64-windows
+            pkg_config_libdir_sep: ";"
             compiler: clang.exe
             build_dir: build/windows-x64
             exe_ext: ".exe"
@@ -59,6 +64,7 @@ jobs:
             runner: windows-11-arm
             triplet: arm64-windows-static
             host_triplet: arm64-windows
+            pkg_config_libdir_sep: ";"
             compiler: clang.exe
             build_dir: build/windows-arm64
             exe_ext: ".exe"
@@ -109,10 +115,22 @@ jobs:
           brew update
           brew install ninja autoconf autoconf-archive automake libtool
 
+      - name: Install vcpkg packages
+        shell: pwsh
+        run: |
+          $vcpkg = if ($IsWindows) {
+            "$env:GITHUB_WORKSPACE/vcpkg/vcpkg.exe"
+          } else {
+            "$env:GITHUB_WORKSPACE/vcpkg/vcpkg"
+          }
+          & $vcpkg install --triplet ${{ matrix.triplet }} --host-triplet ${{ matrix.host_triplet }} --x-manifest-root="$env:GITHUB_WORKSPACE" --x-install-root="$env:GITHUB_WORKSPACE/${{ matrix.build_dir }}/vcpkg_installed"
+
       - name: Configure and build
         if: runner.os != 'Windows'
         shell: pwsh
         run: |
+          $targetPkgConfig = "$env:GITHUB_WORKSPACE/${{ matrix.build_dir }}/vcpkg_installed/${{ matrix.triplet }}"
+          $env:PKG_CONFIG_LIBDIR = "$targetPkgConfig/lib/pkgconfig${{ matrix.pkg_config_libdir_sep }}$targetPkgConfig/share/pkgconfig"
           cmake -S . -B "${{ matrix.build_dir }}" -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_C_COMPILER=${{ matrix.compiler }} `
@@ -130,6 +148,8 @@ jobs:
           $vs = & $vswhere -latest -products * -property installationPath
           $vcvars = Join-Path $vs "VC\Auxiliary\Build\${{ matrix.vcvars }}"
           $pkgconf = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.build_dir }}\vcpkg_installed\${{ matrix.host_triplet }}\tools\pkgconf\${{ matrix.pkgconf }}"
+          $targetPkgConfig = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.build_dir }}\vcpkg_installed\${{ matrix.triplet }}"
+          $env:PKG_CONFIG_LIBDIR = "$targetPkgConfig\lib\pkgconfig${{ matrix.pkg_config_libdir_sep }}$targetPkgConfig\share\pkgconfig"
           $command = 'call "' + $vcvars + '" && cmake -S . -B "${{ matrix.build_dir }}" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.compiler }} -DCMAKE_TOOLCHAIN_FILE="' + $env:GITHUB_WORKSPACE + '\vcpkg\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} -DPKG_CONFIG_EXECUTABLE="' + $pkgconf + '" && cmake --build "${{ matrix.build_dir }}" --config Release'
           cmd.exe /d /s /c $command
 
