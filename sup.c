@@ -335,6 +335,8 @@ static void write_palette (FILE *fh, int64_t dts, int palette, uint32_t *pal, in
 	{
 		PUT(i)
 		PUT(get_y(pal[i], colorspace))
+		/* PGS stores palette entries as Y, Cr, Cb, T. The historic helper
+		 * names are inverted: get_u() returns Cr and get_v() returns Cb. */
 		PUT(get_u(pal[i], colorspace))
 		PUT(get_v(pal[i], colorspace))
 		PUT(((uint8_t *)&(pal[i]))[3])
@@ -373,7 +375,7 @@ void conv_sup_ods_next (sup_ods_next_t *odsn)
 static void write_image (FILE *fh, int64_t timestamp, int64_t dts, int picture, int w, int h, uint8_t *rle, int rle_len)
 {
 	sup_ods_first_t odsf;
-	sup_ods_next_t odsn = {picture, 0, 0};
+	sup_ods_next_t odsn;
 	int length = 0x80000000 | (rle_len + 4);
 	int size;
 
@@ -407,8 +409,9 @@ static void write_image (FILE *fh, int64_t timestamp, int64_t dts, int picture, 
 			size = rle_len;
 		rle_len -= size;
 
-		if (!rle_len)
-			odsn.last = 64;
+		odsn.picture = picture;
+		odsn.m = 0;
+		odsn.last = rle_len ? 0 : 64;
 
 		write_header(fh, timestamp, dts, 21, sizeof(odsn) + size);
 		conv_sup_ods_next(&odsn);
@@ -735,7 +738,7 @@ void write_composition (sup_writer_t *sw)
 	write_pcs_end(sw->fh, sw->last_end_ts, dts, sw->im_w, sw->im_h, sw->fps_id, ++(sw->comp_num));
 
 	/* Write WDS */
-	ts = sw->last_end_ts - sw->last_window_ts;
+	ts = sw->last_end_ts;
 	write_wds(sw->fh, ts, dts, sw->window_num);
 	for (i = 0; i < sw->window_num; i++)
 		write_wds_obj(sw->fh, i, sw->windows[i].w, sw->windows[i].h, sw->windows[i].x, sw->windows[i].y);
