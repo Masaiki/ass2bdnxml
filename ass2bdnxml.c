@@ -483,7 +483,7 @@ void mk_timecode (int frame, int fps, char *buf) /* buf must have length 12 (inc
 void print_usage ()
 {
 	fprintf(stderr,
-		"ass2bdnxml 1.02\n\n"
+		"ass2bdnxml 1.10\n\n"
 		"Usage: ass2bdnxml [options] -o output input\n\n"
 		"Input has to be an ass or a ssa subtitle file\n\n"
 		"  -h, --help                   Show this help text\n"
