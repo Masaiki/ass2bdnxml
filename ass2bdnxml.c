@@ -631,6 +631,23 @@ void add_event_xml (event_list_t *events, int split_at, int min_split, int start
 	}
 }
 
+int count_event_xml (event_list_t *events)
+{
+	int count = 0;
+	event_t *event;
+
+	if (event_list_empty(events))
+		return 0;
+
+	event = event_list_first(events);
+	while (event != NULL)
+	{
+		count++;
+		event = event_list_next(events);
+	}
+	return count;
+}
+
 void write_sup_wrapper (sup_writer_t *sw, uint8_t *im, int num_crop, crop_t *crops, uint32_t *pal, int start, int end, int split_at, int min_split, int stricter)
 {
 	int d = end - start;
@@ -822,6 +839,7 @@ int main (int argc, char *argv[])
 	int xml_output = 0;
 	int allow_empty = 0;
 	int stricter = 0;
+	int xml_event_count = 0;
 	sup_writer_t *sw = NULL;
 	ass_input_t *ass_context;
 	stream_info_t *s_info = malloc(sizeof(stream_info_t));
@@ -1274,6 +1292,8 @@ int main (int argc, char *argv[])
 			}
 		}
 
+		xml_event_count = count_event_xml(events);
+
 		/* Initialize timecode buffers */
 		intc_buf = calloc(12, 1);
 		outtc_buf = calloc(12, 1);
@@ -1301,7 +1321,7 @@ int main (int argc, char *argv[])
 		mk_timecode(frames + to, fps, outtc_buf);
 		fprintf(fh, "ContentInTC=\"%s\" ContentOutTC=\"%s\" NumberofEvents=\"%d\" Type=\"Graphic\"/>\n"
 			"</Description>\n"
-			"<Events>\n", intc_buf, outtc_buf, num_of_events);
+			"<Events>\n", intc_buf, outtc_buf, xml_event_count);
 
 		/* Write XML events */
 		if (!event_list_empty(events))

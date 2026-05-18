@@ -43,6 +43,19 @@
 #define DEBUG 0
 #endif
 
+#define SUP_MAX_EPOCH_PALETTES 8
+#define SUP_MAX_EPOCH_OBJECTS 64
+#define SUP_MAX_EPOCH_BUFFER (4 * 1024 * 1024)
+
+static uint32_t clamp_timestamp (int64_t timestamp)
+{
+	if (timestamp < 0)
+		return 0;
+	if (timestamp > UINT32_MAX)
+		return UINT32_MAX;
+	return (uint32_t)timestamp;
+}
+
 static int count (uint8_t *im, int x, int w, int col)
 {
 	int c = 0;
@@ -127,13 +140,13 @@ void conv_sup_header (sup_header_t *h)
 	h->packet_len = SWAP16(h->packet_len);
 }
 
-static void write_header (FILE *fh, int start_time, int dts, int packet_type, int packet_len)
+static void write_header (FILE *fh, int64_t start_time, int64_t dts, int packet_type, int packet_len)
 {
 	sup_header_t h;
 
 	h.m1 = 80; h.m2 = 71;
-	h.start_time = start_time;
-	h.dts = dts;
+	h.start_time = clamp_timestamp(start_time);
+	h.dts = clamp_timestamp(dts);
 	h.packet_type = packet_type;
 	h.packet_len = packet_len;
 
@@ -176,13 +189,13 @@ void conv_sup_pcs_start_obj (sup_pcs_start_obj_t *pcsso)
 	pcsso->y_off = SWAP16(pcsso->y_off);
 }
 
-static void write_pcs_start (FILE *fh, int start_time, int dts, int follower, int objects, int vid_w, int vid_h, int fps_id, int comp_num)
+static void write_pcs_start (FILE *fh, int64_t start_time, int64_t dts, int follower, int objects, int vid_w, int vid_h, int fps_id, int comp_num, int palette)
 {
 	sup_pcs_start_t pcss;
 
 	write_header(fh, start_time, dts, 22, sizeof(pcss) + objects * sizeof(sup_pcs_start_obj_t));
 
-	pcss.m = 0;
+	pcss.m = palette & 0x7f; /* palette_update_flag = 0, palette_id_ref = palette */
 	pcss.width = vid_w;
 	pcss.height = vid_h;
 	pcss.fps_id = fps_id;
@@ -235,7 +248,7 @@ void conv_sup_wds_obj (sup_wds_obj_t *wdso)
 	wdso->height = SWAP16(wdso->height);
 }
 
-static void write_wds (FILE *fh, int timestamp, int dts, int windows)
+static void write_wds (FILE *fh, int64_t timestamp, int64_t dts, int windows)
 {
 	sup_wds_t wds;
 
@@ -292,17 +305,18 @@ static uint8_t get_v (uint32_t c, int s)
 
 typedef struct sup_palette_s
 {
-	uint16_t palette;
+	uint8_t palette;
+	uint8_t version;
 } __attribute ((packed)) sup_palette_t;
 
 void conv_sup_palette (sup_palette_t *p)
 {
-	p->palette = SWAP16(p->palette);
+	/* Do nothing. */
 }
 
 /* Colorspace = 1 for 480p/576p, 0 otherwise */
 #define PUT(x) { t = (uint8_t)(x); fwrite(&t, 1, 1, fh); }
-static void write_palette (FILE *fh, int dts, int palette, uint32_t *pal, int colorspace)
+static void write_palette (FILE *fh, int64_t dts, int palette, uint32_t *pal, int colorspace)
 {
 	sup_palette_t p;
 	int entries = 1, i;
@@ -312,7 +326,8 @@ static void write_palette (FILE *fh, int dts, int palette, uint32_t *pal, int co
 		entries++;
 	write_header(fh, dts, dts, 20, sizeof(p) + entries * 5);
 
-	p.palette = palette;
+	p.palette = palette & 0xff;
+	p.version = 0;
 	conv_sup_palette(&p);
 	fwrite(&p, sizeof(p), 1, fh);
 
@@ -355,7 +370,7 @@ void conv_sup_ods_next (sup_ods_next_t *odsn)
 	odsn->picture = SWAP16(odsn->picture);
 }
 
-static void write_image (FILE *fh, int timestamp, int dts, int picture, int w, int h, uint8_t *rle, int rle_len)
+static void write_image (FILE *fh, int64_t timestamp, int64_t dts, int picture, int w, int h, uint8_t *rle, int rle_len)
 {
 	sup_ods_first_t odsf;
 	sup_ods_next_t odsn = {picture, 0, 0};
@@ -403,9 +418,9 @@ static void write_image (FILE *fh, int timestamp, int dts, int picture, int w, i
 	}
 }
 
-static void write_marker (FILE *fh, int time)
+static void write_marker (FILE *fh, int64_t time, int64_t dts)
 {
-	write_header(fh, time, time, 0x80, 0);
+	write_header(fh, time, dts, 0x80, 0);
 }
 
 typedef struct sup_pcs_end_s
@@ -425,7 +440,7 @@ void conv_sup_pcs_end (sup_pcs_end_t *pcse)
 	pcse->m = SWAP32(pcse->m);
 }
 
-static void write_pcs_end (FILE *fh, int end_time, int dts, int w, int h, int fps_id, int comp_num)
+static void write_pcs_end (FILE *fh, int64_t end_time, int64_t dts, int w, int h, int fps_id, int comp_num)
 {
 	sup_pcs_end_t pcse;
 
@@ -495,6 +510,7 @@ sup_writer_t *new_sup_writer (char *filename, int im_w, int im_h, int fps_num, i
 	sw->picture_offset = 0;
 	sw->last_end_ts = 0;
 	sw->last_window_ts = 0;
+	sw->last_dts = 0;
 	sw->window_num = 0;
 	sw->sil = si_list_new();
 
@@ -515,14 +531,15 @@ void destroy_si (subtitle_info_t *si)
 
 void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop, rect_t *crops, uint32_t *pal, int start, int end, int new_composition)
 {
-	uint32_t frame_ts, window_ts, decode_ts;
-	uint32_t window_ts_list[2], decode_ts_list[2];
-	uint32_t later_window;
+	int64_t frame_ts, window_ts, decode_ts;
+	int64_t window_ts_list[2], decode_ts_list[2];
+	int64_t later_window;
 	int in_window[2];
-	uint32_t dts;
-	uint32_t start_ts, end_ts, ts;
+	int64_t dts;
+	int64_t start_ts, end_ts, ts;
 	int follower = 0;
-	uint32_t im_ts = 0;
+	int64_t im_ts = 0;
+	int64_t im_dts = 0;
 	int i, j;
 	double tick_fac = 90000;
 
@@ -538,8 +555,8 @@ void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop
 	 */
 	tick_fac *= ((double)sw->fps_den) / ((double)sw->fps_num);
 
-	start_ts = (int)floor((double)start * tick_fac + 0.5);
-	end_ts = (int)floor((double)end * tick_fac + 0.5);
+	start_ts = (int64_t)floor((double)start * tick_fac + 0.5);
+	end_ts = (int64_t)floor((double)end * tick_fac + 0.5);
 
 	/* Calculate some timestamps/modifiers */
 	frame_ts = (sw->im_w * sw->im_h * 9 + 3199) / 3200;
@@ -584,15 +601,18 @@ void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop
 
 	/* Determine windows */
 	for (i = 0; i < num_crop; i++)
+	{
+		in_window[i] = 0;
 		for (j = 0; j < sw->window_num; j++)
 			if (crops[i].x >= sw->windows[j].x && crops[i].x + crops[i].w <= sw->windows[j].x + sw->windows[j].w && crops[i].y >= sw->windows[j].y && crops[i].y + crops[i].h <= sw->windows[j].y + sw->windows[j].h)
 			{
 				in_window[i] = j;
 				break;
 			}
+	}
 
 	/* Write PCSS */
-	write_pcs_start(sw->fh, start_ts, dts, follower, num_crop, sw->im_w, sw->im_h, sw->fps_id, sw->comp_num);
+	write_pcs_start(sw->fh, start_ts, dts, follower, num_crop, sw->im_w, sw->im_h, sw->fps_id, sw->comp_num, sw->palette_offset);
 	for (i = 0; i < num_crop; i++)
 		write_pcs_start_obj(sw->fh, sw->picture_offset + i, in_window[i], crops[i].x, crops[i].y);
 
@@ -635,15 +655,17 @@ void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop
 				dts = start_ts - later_window - decode_ts_list[1];
 			}
 		}
-		write_image(sw->fh, im_ts, dts, sw->picture_offset + i, crops[i].w, crops[i].h, rle[i], rle_len[i]);
+		im_dts = dts;
+		write_image(sw->fh, im_ts, im_dts, sw->picture_offset + i, crops[i].w, crops[i].h, rle[i], rle_len[i]);
 	}
 
 	/* Write marker */
-	write_marker(sw->fh, im_ts);
+	write_marker(sw->fh, im_ts, im_dts);
 
 	/* Remember data for creation of composition end */
 	sw->last_end_ts = end_ts;
 	sw->last_window_ts = window_ts;
+	sw->last_dts = clamp_timestamp(im_dts);
 }
 
 void write_composition (sup_writer_t *sw)
@@ -654,7 +676,7 @@ void write_composition (sup_writer_t *sw)
 	rect_t last_crops[2];
 	int new_composition = 1;
 	int si_rects = 0;
-	int ts, dts;
+	int64_t ts, dts;
 	int i;
 
 	/* Only write anything if there is a non-empty composition */
@@ -709,7 +731,7 @@ void write_composition (sup_writer_t *sw)
 	}
 
 	/* Write PCSE */
-	dts = sw->last_end_ts - sw->last_window_ts - 1;
+	dts = sw->last_dts;
 	write_pcs_end(sw->fh, sw->last_end_ts, dts, sw->im_w, sw->im_h, sw->fps_id, ++(sw->comp_num));
 
 	/* Write WDS */
@@ -719,7 +741,7 @@ void write_composition (sup_writer_t *sw)
 		write_wds_obj(sw->fh, i, sw->windows[i].w, sw->windows[i].h, sw->windows[i].x, sw->windows[i].y);
 
 	/* Write marker */
-	write_marker(sw->fh, dts);
+	write_marker(sw->fh, ts, dts);
 
 	/* Cleanup */
 	free(rects);
@@ -728,6 +750,8 @@ void write_composition (sup_writer_t *sw)
 	(sw->comp_num)++;
 
 	/* Reset picture and palette count, new buffer. */
+	sw->non_new = 0;
+	sw->follower_end = -2;
 	sw->objects = 0;
 	sw->palettes = 0;
 	sw->palette_offset = 0;
@@ -784,31 +808,31 @@ void write_sup (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint
 	for (i = 0; i < num_crop; i++)
 		buffer_increase += crops[i].w * crops[i].h + 16;
 	/* Disabled some conditions for now. */
-	if (sw->non_new && ((start > sw->end + 1) || (sw->objects + num_crop > 64) || (strict && ((sw->buffer + buffer_increase >= 4 * 1024 * 1024) || (sw->palettes + 1 > 8)))))
+	if (sw->non_new && ((start > sw->end + 1) || (sw->objects + num_crop > SUP_MAX_EPOCH_OBJECTS) || (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER) || (sw->palettes + 1 > SUP_MAX_EPOCH_PALETTES)))
 	{
 #		if DEBUG != 0
 #		warning "DEBUG enabled."
 			printf("Starting new composition ");
 			if (start > sw->end)
 				printf("due to time difference. %u > %u + 1\n", start, sw->end);
-			else if (sw->buffer + buffer_increase >= 4 * 1024 * 1024)
-				printf("due to buffer overflow. %u + %u = %u > %u\n", sw->buffer, buffer_increase, sw->buffer + buffer_increase, 4*1024*1024);
-			else if (sw->objects + num_crop > 64)
-				printf("due to number of composition objects. %u + %u = %u > %u\n", sw->objects, num_crop, sw->picture + num_crop, 64);
-			else if (sw->palette + 1 > 8)
-				printf("due to number of palettes. %u + %u = %u > %u\n", sw->palette, 1, sw->palette + 1, 8);
+			else if (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER)
+				printf("due to buffer overflow. %u + %u = %u > %u\n", sw->buffer, buffer_increase, sw->buffer + buffer_increase, SUP_MAX_EPOCH_BUFFER);
+			else if (sw->objects + num_crop > SUP_MAX_EPOCH_OBJECTS)
+				printf("due to number of composition objects. %u + %u > %u\n", sw->objects, num_crop, SUP_MAX_EPOCH_OBJECTS);
+			else if (sw->palettes + 1 > SUP_MAX_EPOCH_PALETTES)
+				printf("due to number of palettes. %u + 1 > %u\n", sw->palettes, SUP_MAX_EPOCH_PALETTES);
 			else
 				printf("for unknown reasons.\n");
 #		else
 		if (strict)
 		{
-			if (sw->buffer + buffer_increase >= 4 * 1024 * 1024)
+			if (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER)
 			{
-				printf("Warning: Starting new epoch due to buffer overflow (%u -> %u > %u) for event starting at frame %u (including offsets) in stricter mode.\n", sw->buffer, sw->buffer + buffer_increase, 4 * 1024 * 1024, start);
+				printf("Warning: Starting new epoch due to buffer overflow (%u -> %u > %u) for event starting at frame %u (including offsets).\n", sw->buffer, sw->buffer + buffer_increase, SUP_MAX_EPOCH_BUFFER, start);
 			}
-			else if (sw->palettes + 1 > 8)
+			else if (sw->palettes + 1 > SUP_MAX_EPOCH_PALETTES)
 			{
-				printf("Warning: Starting new epoch due to too many palettes for event starting at frame %u (including offsets) in stricter mode.\n", start);
+				printf("Warning: Starting new epoch due to too many palettes for event starting at frame %u (including offsets).\n", start);
 			}
 		}
 #		endif

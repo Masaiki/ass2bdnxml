@@ -55,6 +55,7 @@ typedef struct sup_writer_s
 	int picture_offset;
 	int last_end_ts;
 	int last_window_ts;
+	int last_dts;
 	int window_num;
 	rect_t windows[2];
 	si_list_t *sil;
