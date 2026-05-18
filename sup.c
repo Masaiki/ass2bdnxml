@@ -512,8 +512,6 @@ sup_writer_t *new_sup_writer (char *filename, int im_w, int im_h, int fps_num, i
 	sw->palette_offset = 0;
 	sw->picture_offset = 0;
 	sw->last_end_ts = 0;
-	sw->last_window_ts = 0;
-	sw->last_dts = 0;
 	sw->window_num = 0;
 	sw->sil = si_list_new();
 
@@ -534,15 +532,10 @@ void destroy_si (subtitle_info_t *si)
 
 void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop, rect_t *crops, uint32_t *pal, int start, int end, int new_composition)
 {
-	int64_t frame_ts, window_ts, decode_ts;
-	int64_t window_ts_list[2], decode_ts_list[2];
-	int64_t later_window;
 	int in_window[2];
-	int64_t dts;
-	int64_t start_ts, end_ts, ts;
+	int64_t start_ts, end_ts;
+	int64_t packet_ts;
 	int follower = 0;
-	int64_t im_ts = 0;
-	int64_t im_dts = 0;
 	int i, j;
 	double tick_fac = 90000;
 
@@ -561,46 +554,14 @@ void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop
 	start_ts = (int64_t)floor((double)start * tick_fac + 0.5);
 	end_ts = (int64_t)floor((double)end * tick_fac + 0.5);
 
-	/* Calculate some timestamps/modifiers */
-	frame_ts = (sw->im_w * sw->im_h * 9 + 3199) / 3200;
-	window_ts = 0;
+	/* FFmpeg and VSFilter consume SUP segments in file order. Keep the
+	 * packet header PTS/DTS monotonic by using the display-set timestamp
+	 * for every segment belonging to the display set. */
+	packet_ts = start_ts;
 
 	if (sw->non_new && ((start == sw->follower_end) || (start == sw->follower_end + 1)))
 		follower = 1;
 	sw->follower_end = end;
-
-	for (i = 0; i < sw->window_num; i++)
-	{
-		window_ts_list[i] = (sw->windows[i].w * sw->windows[i].h * 9 + 3199) / 3200;
-		window_ts += window_ts_list[i];
-	}
-	decode_ts = 0;
-	for (i = 0; i < num_crop; i++)
-	{
-		decode_ts_list[i] = (crops[i].w * crops[i].h * 9 + 1599) / 1600;
-		decode_ts += decode_ts_list[i];
-	}
-
-	if (sw->window_num > 1)
-		later_window = window_ts_list[1];
-	else
-		later_window = window_ts_list[0];
-
-	/* Calculate dts */
-	if (num_crop == 1)
-	{
-		if (new_composition)
-			dts = start_ts - frame_ts - window_ts;
-		else
-			dts = start_ts - window_ts - decode_ts;
-	}
-	else
-	{
-		if (new_composition)
-			dts = start_ts - frame_ts - window_ts;
-		else
-			dts = start_ts - decode_ts - later_window;
-	}
 
 	/* Determine windows */
 	for (i = 0; i < num_crop; i++)
@@ -615,60 +576,27 @@ void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop
 	}
 
 	/* Write PCSS */
-	write_pcs_start(sw->fh, start_ts, dts, follower, num_crop, sw->im_w, sw->im_h, sw->fps_id, sw->comp_num, sw->palette_offset);
+	write_pcs_start(sw->fh, packet_ts, packet_ts, follower, num_crop, sw->im_w, sw->im_h, sw->fps_id, sw->comp_num, sw->palette_offset);
 	for (i = 0; i < num_crop; i++)
 		write_pcs_start_obj(sw->fh, sw->picture_offset + i, in_window[i], crops[i].x, crops[i].y);
 
 	/* Write WDS */
-	ts = start_ts - window_ts; /* Can be very slightly off, possible rounding error (FIXME: fixed?) */
-	write_wds(sw->fh, ts, dts, sw->window_num);
+	write_wds(sw->fh, packet_ts, packet_ts, sw->window_num);
 	for (i = 0; i < sw->window_num; i++)
 		write_wds_obj(sw->fh, i, sw->windows[i].w, sw->windows[i].h, sw->windows[i].x, sw->windows[i].y);
 
 	/* Write palette */
-	write_palette(sw->fh, dts, sw->palette_offset, pal, sw->colorspace);
+	write_palette(sw->fh, packet_ts, sw->palette_offset, pal, sw->colorspace);
 
 	/* Write image data */
 	for (i = 0; i < num_crop; i++)
-	{
-		if (num_crop == 1)
-		{
-			if (new_composition)
-				im_ts = start_ts - frame_ts + window_ts; /* This one can be off a bit. (FIXME) */
-			else
-				im_ts = start_ts - window_ts;
-		}
-		else if (i == 0)
-		{
-			if (new_composition)
-				im_ts = start_ts - frame_ts + window_ts_list[0] - later_window; /* This one can be off a bit, ~5/90000s was observed (FIXME: fixed?) */
-			else
-				im_ts = start_ts - later_window - decode_ts_list[1];
-		}
-		else
-		{
-			if (new_composition)
-			{
-				im_ts = start_ts - frame_ts + window_ts; /* Can be slightly off, possible rounding error (FIXME: fixed?) */
-				dts = start_ts - frame_ts + window_ts_list[0] - later_window;
-			}
-			else
-			{
-				im_ts = start_ts - later_window;
-				dts = start_ts - later_window - decode_ts_list[1];
-			}
-		}
-		im_dts = dts;
-		write_image(sw->fh, im_ts, im_dts, sw->picture_offset + i, crops[i].w, crops[i].h, rle[i], rle_len[i]);
-	}
+		write_image(sw->fh, packet_ts, packet_ts, sw->picture_offset + i, crops[i].w, crops[i].h, rle[i], rle_len[i]);
 
 	/* Write marker */
-	write_marker(sw->fh, im_ts, im_dts);
+	write_marker(sw->fh, packet_ts, packet_ts);
 
 	/* Remember data for creation of composition end */
 	sw->last_end_ts = end_ts;
-	sw->last_window_ts = window_ts;
-	sw->last_dts = clamp_timestamp(im_dts);
 }
 
 void write_composition (sup_writer_t *sw)
@@ -679,7 +607,7 @@ void write_composition (sup_writer_t *sw)
 	rect_t last_crops[2];
 	int new_composition = 1;
 	int si_rects = 0;
-	int64_t ts, dts;
+	int64_t dts;
 	int i;
 
 	/* Only write anything if there is a non-empty composition */
@@ -734,17 +662,16 @@ void write_composition (sup_writer_t *sw)
 	}
 
 	/* Write PCSE */
-	dts = sw->last_dts;
+	dts = sw->last_end_ts;
 	write_pcs_end(sw->fh, sw->last_end_ts, dts, sw->im_w, sw->im_h, sw->fps_id, ++(sw->comp_num));
 
 	/* Write WDS */
-	ts = sw->last_end_ts;
-	write_wds(sw->fh, ts, dts, sw->window_num);
+	write_wds(sw->fh, sw->last_end_ts, dts, sw->window_num);
 	for (i = 0; i < sw->window_num; i++)
 		write_wds_obj(sw->fh, i, sw->windows[i].w, sw->windows[i].h, sw->windows[i].x, sw->windows[i].y);
 
 	/* Write marker */
-	write_marker(sw->fh, ts, dts);
+	write_marker(sw->fh, sw->last_end_ts, dts);
 
 	/* Cleanup */
 	free(rects);
