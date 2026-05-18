@@ -486,13 +486,14 @@ void print_usage ()
 		"ass2bdnxml 1.02\n\n"
 		"Usage: ass2bdnxml [options] -o output input\n\n"
 		"Input has to be an ass or a ssa subtitle file\n\n"
-		"  -o, --output <string>        Output file in BDN XML format\n"
-		"                               For SUP/PGS output, use a .sup extension\n"
+		"  -h, --help                   Show this help text\n"
+		"  -o, --output <string>        Output file (.xml, .sup, or .pgs)\n"
+		"                               May be used twice for XML+SUP/PGS output\n"
 		"  -j, --seek <integer>         Start processing at this frame, first is 0\n"
 		"  -c, --count <integer>        Number of input frames to process\n"
 		"  -t, --trackname <string>     Name of track, like: Undefined\n"
 		"  -l, --language <string>      Language code, like: und\n"
-		"  -v, --video-format <string>  Either of: 720p, 1080p, 2k, or with custom resolution like 720*480\n"
+		"  -v, --video-format <string>  Either of: 720p, 1080p, 1440p, 2k, or with custom resolution like 720*480\n"
 		"  -f, --fps <float>            Either of: 23.976, 24, 25, 30, 29.97, 50, 59.94, 60, or custom fps like 15/1\n"
 		"  -x, --x-offset <integer>     X offset, for use with partial frames.\n"
 		"  -y, --y-offset <integer>     Y offset, for use with partial frames.\n"
@@ -503,7 +504,8 @@ void print_usage ()
 		"  -m, --min-split <integer>    Minimum length of line segment after split.\n"
 		"  -e, --even-y <integer>       Enforce even Y coordinates. [on=1, off=0]\n"
 		"  -a, --autocrop <integer>     Automatically crop output. [on=1, off=0]\n"
-		"  -p, --palette <integer>      Output 8bit palette PNG. [on=1, off=0]\n"
+		"  -p, --palette <integer>      Output 8bit palette PNG for XML output. [on=1, off=0]\n"
+		"                               SUP/PGS output always uses an internal palette.\n"
 		"  -n, --null-xml <integer>     Allow output of empty XML files. [on=1, off=0]\n"
 		"  -z, --stricter <integer>     Stricter checks in the SUP writer. May lead to\n"
 		"                               less optimized buffer use, but might raise\n"
@@ -876,11 +878,12 @@ int main (int argc, char *argv[])
 			, {"null-xml",     required_argument, 0, 'n'}
 			, {"stricter",     required_argument, 0, 'z'}
 			, {"font-dir",     required_argument, 0, 'g'}
+			, {"help",         no_argument,       0, 'h'}
 			, {0, 0, 0, 0}
 			};
 			int option_index = 0;
 
-			c = getopt_long(argc, argv, "o:j:c:t:l:v:f:x:y:d:b:s:m:e:p:a:u:n:z:g:", long_options, &option_index);
+			c = getopt_long(argc, argv, "ho:j:c:t:l:v:f:x:y:d:b:s:m:e:p:a:u:n:z:g:", long_options, &option_index);
 			if (c == -1)
 				break;
 			switch (c)
@@ -951,6 +954,9 @@ int main (int argc, char *argv[])
 				case 'g':
 					additional_font_dir = optarg;
 					break;
+				case 'h':
+					print_usage();
+					return 0;
 				default:
 					print_usage();
 					return 0;
@@ -1047,8 +1053,11 @@ int main (int argc, char *argv[])
 			s_info->i_fps_den = fps_den;
 			have_fps = 1;
 		}
-		fprintf(stderr, "Error: Invalid framerate (%s).\n", frame_rate);
-		return 1;
+		else
+		{
+			fprintf(stderr, "Error: Invalid framerate (%s).\n", frame_rate);
+			return 1;
+		}
 	}
 
 	/* Get timecode offset. */
