@@ -13,7 +13,8 @@ endif()
 
 find_package(ZLIB REQUIRED)
 find_package(PNG REQUIRED)
-if(WIN32)
+# MinGW provides getopt_long via libmingwex; only MSVC needs the vcpkg port.
+if(WIN32 AND NOT MINGW)
     find_package(getopt CONFIG REQUIRED)
 endif()
 
@@ -31,7 +32,7 @@ add_executable(ass2bdnxml ${SOURCES})
 
 target_include_directories(ass2bdnxml PRIVATE ${LIBASS_INCLUDE_DIRS})
 target_link_libraries(ass2bdnxml PRIVATE ZLIB::ZLIB PNG::PNG ${LIBASS_LINK_LIBRARIES})
-if(WIN32)
+if(WIN32 AND NOT MINGW)
     target_link_libraries(ass2bdnxml PRIVATE $<IF:$<TARGET_EXISTS:getopt::getopt_shared>,getopt::getopt_shared,getopt::getopt_static>)
 endif()
 
