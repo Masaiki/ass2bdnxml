@@ -103,10 +103,48 @@ char *rindex(char *s, int c) {
 	return NULL;
 }
 #else
-char *_fullpath(char *absPath, const char *relPath, size_t maxLength) {
-	return realpath(relPath, absPath);
-}
 #include <libgen.h>
+/* realpath() requires every path component to exist, but the output XML file
+ * is not created yet. Resolve the existing parent directory and re-append the
+ * file name so behaviour matches the lexical Windows _fullpath. */
+char *_fullpath(char *absPath, const char *relPath, size_t maxLength) {
+	char path_copy[PATH_MAX];
+	char base_buf[PATH_MAX];
+	char *resolved_dir;
+	size_t len, blen;
+	int sep;
+
+	if (!absPath || !relPath || maxLength == 0)
+		return NULL;
+	if (strlen(relPath) >= PATH_MAX)
+		return NULL;
+
+	strcpy(path_copy, relPath);
+	strncpy(base_buf, basename(path_copy), PATH_MAX - 1);
+	base_buf[PATH_MAX - 1] = '\0';
+
+	strcpy(path_copy, relPath);
+	resolved_dir = realpath(dirname(path_copy), NULL);
+	if (!resolved_dir)
+		return NULL;
+
+	len = strlen(resolved_dir);
+	blen = strlen(base_buf);
+	sep = (len > 0 && resolved_dir[len - 1] != '/');
+	if (len + (sep ? 1 : 0) + blen + 1 > maxLength) {
+		free(resolved_dir);
+		return NULL;
+	}
+	memcpy(absPath, resolved_dir, len);
+	absPath[len] = '\0';
+	if (sep) {
+		absPath[len++] = '/';
+		absPath[len] = '\0';
+	}
+	strcat(absPath, base_buf);
+	free(resolved_dir);
+	return absPath;
+}
 void _splitpath(char *path, char *drive, char *dir, char *fname, char *ext){
 	if (drive) drive[0] = 0;
 	if (dir) {
