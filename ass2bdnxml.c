@@ -1245,6 +1245,9 @@ int main (int argc, char *argv[])
 			drop_frame = "false";
 			s_info->i_fps_num = fps_num;
 			s_info->i_fps_den = fps_den;
+			/* mk_timecode/parse_tc use the integer fps; mirror the preset
+			 * table by rounding num/den so custom rates get correct timecodes. */
+			fps = (int)floor((double)fps_num / fps_den + 0.5);
 			have_fps = 1;
 		}
 		else
