@@ -153,6 +153,10 @@ jobs:
           $command = 'call "' + $vcvars + '" && cmake -S . -B "${{ matrix.build_dir }}" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.compiler }} -DCMAKE_TOOLCHAIN_FILE="' + $env:GITHUB_WORKSPACE + '\vcpkg\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} -DPKG_CONFIG_EXECUTABLE="' + $pkgconf + '" && cmake --build "${{ matrix.build_dir }}" --config Release'
           cmd.exe /d /s /c $command
 
+      - name: Test
+        shell: pwsh
+        run: ctest --test-dir "${{ matrix.build_dir }}" --build-config Release --output-on-failure
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

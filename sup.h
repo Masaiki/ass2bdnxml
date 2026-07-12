@@ -24,8 +24,8 @@
 
 typedef struct subtitle_info_s
 {
-	int start;
-	int end;
+	int64_t start;
+	int64_t end;
 	int num_crop;
 	rect_t crops[2];
 	int rle_len[2];
@@ -46,14 +46,14 @@ typedef struct sup_writer_s
 	int fps_den;
 	int fps_id;
 	uint16_t comp_num;
-	unsigned int end;
-	unsigned int follower_end;
+	int64_t end;
+	int64_t follower_end;
 	int buffer;
 	int objects;
 	int palettes;
 	int palette_offset;
 	int picture_offset;
-	int last_end_ts;
+	int64_t last_end_ts;
 	int window_num;
 	rect_t windows[2];
 	si_list_t *sil;
@@ -62,11 +62,10 @@ typedef struct sup_writer_s
 /* Create a new sup writer state */
 sup_writer_t *new_sup_writer (char *filename, int im_w, int im_h, int fps_num, int fps_den);
 
-/* Write sup data for subtitle */
-void write_sup (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint32_t *pal, int start, int end, int strict);
+/* Write sup data using timestamps already expressed in the SUP 90 kHz timebase. */
+void write_sup_timestamp (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint32_t *pal, int64_t start, int64_t end, int strict);
 
 /* Call this once at the end */
 void close_sup_writer (sup_writer_t *sw);
 
 #endif
-

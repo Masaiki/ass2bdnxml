@@ -17,6 +17,7 @@
  *----------------------------------------------------------------------------*/
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -530,14 +531,12 @@ void destroy_si (subtitle_info_t *si)
 	free(si);
 }
 
-void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop, rect_t *crops, uint32_t *pal, int start, int end, int new_composition)
+void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop, rect_t *crops, uint32_t *pal, int64_t start_ts, int64_t end_ts, int new_composition)
 {
 	int in_window[2];
-	int64_t start_ts, end_ts;
 	int64_t packet_ts;
 	int follower = 0;
 	int i, j;
-	double tick_fac = 90000;
 
 	/* For stuff following frame by frame (endts = startts):
 	 *   - Write: PCSS, WDS, PAL, IMG, MARK, [PCSS, WDS, PAL, IMG, MARK...], PCSE, WDS, MARK
@@ -549,19 +548,14 @@ void write_subtitle (sup_writer_t *sw, uint8_t **rle, int *rle_len, int num_crop
 	 *   Do some stuff to WDS too. Keep it to first value, if stuff still fits in the window?
 	 *   It seems WDS has to stay constant within a single composition. What a pain.
 	 */
-	tick_fac *= ((double)sw->fps_den) / ((double)sw->fps_num);
-
-	start_ts = (int64_t)floor((double)start * tick_fac + 0.5);
-	end_ts = (int64_t)floor((double)end * tick_fac + 0.5);
-
 	/* FFmpeg and VSFilter consume SUP segments in file order. Keep the
 	 * packet header PTS/DTS monotonic by using the display-set timestamp
 	 * for every segment belonging to the display set. */
 	packet_ts = start_ts;
 
-	if (sw->non_new && ((start == sw->follower_end) || (start == sw->follower_end + 1)))
+	if (sw->non_new && start_ts == sw->follower_end)
 		follower = 1;
-	sw->follower_end = end;
+	sw->follower_end = end_ts;
 
 	/* Determine windows */
 	for (i = 0; i < num_crop; i++)
@@ -689,7 +683,7 @@ void write_composition (sup_writer_t *sw)
 	sw->buffer = 0;
 }
 
-subtitle_info_t *collect_si (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint32_t *pal, int start, int end)
+subtitle_info_t *collect_si (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint32_t *pal, int64_t start, int64_t end)
 {
 	subtitle_info_t *si = malloc(sizeof(subtitle_info_t));
 	int i;
@@ -728,7 +722,7 @@ void close_sup_writer (sup_writer_t *sw)
 
 IMPLEMENT_LIST(si, subtitle_info_t)
 
-void write_sup (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint32_t *pal, int start, int end, int strict)
+void write_sup_timestamp (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint32_t *pal, int64_t start, int64_t end, int strict)
 {
 	rect_t tmp;
 	int buffer_increase;
@@ -738,13 +732,13 @@ void write_sup (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint
 	for (i = 0; i < num_crop; i++)
 		buffer_increase += crops[i].w * crops[i].h + 16;
 	/* Disabled some conditions for now. */
-	if (sw->non_new && ((start > sw->end + 1) || (sw->objects + num_crop > SUP_MAX_EPOCH_OBJECTS) || (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER) || (sw->palettes + 1 > SUP_MAX_EPOCH_PALETTES)))
+	if (sw->non_new && ((start > sw->end) || (sw->objects + num_crop > SUP_MAX_EPOCH_OBJECTS) || (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER) || (sw->palettes + 1 > SUP_MAX_EPOCH_PALETTES)))
 	{
 #		if DEBUG != 0
 #		warning "DEBUG enabled."
 			printf("Starting new composition ");
 			if (start > sw->end)
-				printf("due to time difference. %u > %u + 1\n", start, sw->end);
+				printf("due to time difference. %" PRId64 " > %" PRId64 "\n", start, sw->end);
 			else if (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER)
 				printf("due to buffer overflow. %u + %u = %u > %u\n", sw->buffer, buffer_increase, sw->buffer + buffer_increase, SUP_MAX_EPOCH_BUFFER);
 			else if (sw->objects + num_crop > SUP_MAX_EPOCH_OBJECTS)
@@ -758,11 +752,11 @@ void write_sup (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint
 		{
 			if (sw->buffer + buffer_increase >= SUP_MAX_EPOCH_BUFFER)
 			{
-				printf("Warning: Starting new epoch due to buffer overflow (%u -> %u > %u) for event starting at frame %u (including offsets).\n", sw->buffer, sw->buffer + buffer_increase, SUP_MAX_EPOCH_BUFFER, start);
+				printf("Warning: Starting new epoch due to buffer overflow (%u -> %u > %u) for event starting at PTS %" PRId64 ".\n", sw->buffer, sw->buffer + buffer_increase, SUP_MAX_EPOCH_BUFFER, start);
 			}
 			else if (sw->palettes + 1 > SUP_MAX_EPOCH_PALETTES)
 			{
-				printf("Warning: Starting new epoch due to too many palettes for event starting at frame %u (including offsets).\n", start);
+				printf("Warning: Starting new epoch due to too many palettes for event starting at PTS %" PRId64 ".\n", start);
 			}
 		}
 #		endif
@@ -787,4 +781,3 @@ void write_sup (sup_writer_t *sw, uint8_t *im, int num_crop, rect_t *crops, uint
 
 	si_list_insert_after(sw->sil, collect_si(sw, im, num_crop, crops, pal, start, end));
 }
-

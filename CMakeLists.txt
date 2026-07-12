@@ -34,3 +34,15 @@ target_link_libraries(ass2bdnxml PRIVATE ZLIB::ZLIB PNG::PNG ${LIBASS_LINK_LIBRA
 if(WIN32)
     target_link_libraries(ass2bdnxml PRIVATE $<IF:$<TARGET_EXISTS:getopt::getopt_shared>,getopt::getopt_shared,getopt::getopt_static>)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    find_program(POWERSHELL_EXECUTABLE NAMES pwsh)
+    if(POWERSHELL_EXECUTABLE)
+        add_test(
+            NAME issue-6-timing
+            COMMAND ${POWERSHELL_EXECUTABLE} -NoProfile -File
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/test-issue-6-timing.ps1
+                -Executable $<TARGET_FILE:ass2bdnxml>)
+    endif()
+endif()

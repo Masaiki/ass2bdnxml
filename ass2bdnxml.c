@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 #include <time.h>
 #include <png.h>
 #include <getopt.h>
@@ -650,23 +651,129 @@ int count_event_xml (event_list_t *events)
 	return count;
 }
 
-void write_sup_wrapper (sup_writer_t *sw, uint8_t *im, int num_crop, crop_t *crops, uint32_t *pal, int start, int end, int split_at, int min_split, int stricter)
+static int64_t frame_timestamp (int frame, int fps_num, int fps_den);
+
+void write_sup_timestamp_wrapper (sup_writer_t *sw, uint8_t *im, int num_crop, crop_t *crops, uint32_t *pal, int64_t start, int64_t end, int split_at, int min_split, int stricter)
 {
-	int d = end - start;
+	int64_t split_ticks = frame_timestamp(split_at, sw->fps_num, sw->fps_den);
+	int64_t min_split_ticks = frame_timestamp(min_split, sw->fps_num, sw->fps_den);
+	int64_t d = end - start;
 
 	if (!split_at)
-		write_sup(sw, im, num_crop, crops, pal, start, end, stricter);
+		write_sup_timestamp(sw, im, num_crop, crops, pal, start, end, stricter);
 	else
 	{
-		while (d >= split_at + min_split)
+		while (d >= split_ticks + min_split_ticks)
 		{
-			d -= split_at;
-			write_sup(sw, im, num_crop, crops, pal, start, start + split_at, stricter);
-			start += split_at;
+			d -= split_ticks;
+			write_sup_timestamp(sw, im, num_crop, crops, pal, start, start + split_ticks, stricter);
+			start += split_ticks;
 		}
 		if (d)
-			write_sup(sw, im, num_crop, crops, pal, start, start + d, stricter);
+			write_sup_timestamp(sw, im, num_crop, crops, pal, start, start + d, stricter);
 	}
+}
+
+typedef struct render_sample_s
+{
+	int64_t pts;
+	long long render_ms;
+	int frame;
+	int frame_sample;
+	int xml_frame;
+	int event_boundary;
+} render_sample_t;
+
+static int64_t frame_timestamp (int frame, int fps_num, int fps_den)
+{
+	long double ticks = (long double)frame * 90000 * fps_den / fps_num;
+	return (int64_t)floorl(ticks + 0.5);
+}
+
+static int compare_render_samples (const void *a, const void *b)
+{
+	const render_sample_t *sa = a;
+	const render_sample_t *sb = b;
+
+	if (sa->pts < sb->pts)
+		return -1;
+	if (sa->pts > sb->pts)
+		return 1;
+	if (sa->render_ms < sb->render_ms)
+		return -1;
+	if (sa->render_ms > sb->render_ms)
+		return 1;
+	return sb->event_boundary - sa->event_boundary;
+}
+
+static render_sample_t *build_render_samples (ASS_Track *track, int init_frame, int xml_last_frame, int sample_last_frame, int fps_num, int fps_den, int time_offset, int include_event_boundaries, int *sample_count)
+{
+	size_t frame_count = sample_last_frame - init_frame;
+	size_t capacity = frame_count + (include_event_boundaries ? (size_t)track->n_events * 2 : 0);
+	render_sample_t *samples = calloc(capacity, sizeof(render_sample_t));
+	int64_t range_start = frame_timestamp(init_frame, fps_num, fps_den);
+	int64_t range_end = frame_timestamp(sample_last_frame, fps_num, fps_den);
+	int64_t offset = frame_timestamp(time_offset, fps_num, fps_den);
+	size_t count = 0;
+	int i;
+
+	if (!samples)
+		return NULL;
+
+	for (i = init_frame; i < sample_last_frame; i++)
+	{
+		samples[count].pts = frame_timestamp(i + time_offset, fps_num, fps_den);
+		samples[count].render_ms = (long double)i * fps_den / fps_num * 1000;
+		samples[count].frame = i;
+		samples[count].frame_sample = 1;
+		samples[count].xml_frame = i < xml_last_frame;
+		count++;
+	}
+
+	if (include_event_boundaries)
+	{
+		size_t read_index;
+		size_t write_index = 0;
+
+		for (i = 0; i < track->n_events; i++)
+		{
+			ASS_Event *event = track->events + i;
+			long long times[2] = {event->Start, event->Start + event->Duration};
+			int j;
+
+			for (j = 0; j < 2; j++)
+			{
+				int64_t pts = times[j] * 90;
+				if (pts < range_start || pts >= range_end)
+					continue;
+				samples[count].pts = pts + offset;
+				samples[count].render_ms = times[j];
+				samples[count].frame = (long double)times[j] * fps_num / fps_den / 1000;
+				samples[count].event_boundary = 1;
+				count++;
+			}
+		}
+
+		qsort(samples, count, sizeof(render_sample_t), compare_render_samples);
+		for (read_index = 0; read_index < count; read_index++)
+		{
+			if (write_index &&
+			    samples[write_index - 1].pts == samples[read_index].pts &&
+			    samples[write_index - 1].render_ms == samples[read_index].render_ms)
+			{
+				samples[write_index - 1].frame_sample |= samples[read_index].frame_sample;
+				samples[write_index - 1].xml_frame |= samples[read_index].xml_frame;
+				if (samples[read_index].frame_sample)
+					samples[write_index - 1].frame = samples[read_index].frame;
+				continue;
+			}
+			samples[write_index++] = samples[read_index];
+		}
+		count = write_index;
+	}
+
+	*sample_count = (int)count;
+	return samples;
 }
 
 
@@ -765,6 +872,61 @@ void make_sub_img(ASS_Image *img, uint8_t *sub_img, int width, int height)
 	}
 }
 
+typedef struct render_output_state_s
+{
+	char *out_buf;
+	uint32_t *pal;
+	crop_t crops[2];
+	int n_crop;
+	int have_line;
+	int start_frame;
+	int64_t start_timestamp;
+	int event_count;
+} render_output_state_t;
+
+static int images_identical_visible (stream_info_t *s_info, const char *img, const char *previous)
+{
+	const uint32_t *current_pixel = (const uint32_t *)img;
+	const uint32_t *previous_pixel = (const uint32_t *)previous;
+	size_t pixels = (size_t)s_info->i_width * s_info->i_height;
+	size_t i;
+
+	for (i = 0; i < pixels; i++)
+	{
+		const uint8_t *current_bytes = (const uint8_t *)(current_pixel + i);
+		const uint8_t *previous_bytes = (const uint8_t *)(previous_pixel + i);
+		if (!current_bytes[3] && !previous_bytes[3])
+			continue;
+		if (current_pixel[i] != previous_pixel[i])
+			return 0;
+	}
+
+	return 1;
+}
+
+static void prepare_output_image (render_output_state_t *state, stream_info_t *s_info, char *in_img, int buffer_opt, int autocrop, int ugly, int even_y)
+{
+	pic_t pic;
+
+	state->n_crop = 1;
+	state->crops[0].x = 0;
+	state->crops[0].y = 0;
+	state->crops[0].w = s_info->i_width;
+	state->crops[0].h = s_info->i_height;
+	swap_rb(s_info, in_img, state->out_buf);
+
+	pic.b = state->out_buf;
+	pic.w = s_info->i_width;
+	pic.h = s_info->i_height;
+	pic.s = s_info->i_width;
+	if (buffer_opt)
+		state->n_crop = auto_split(pic, state->crops, ugly, even_y);
+	else if (autocrop)
+		auto_crop(pic, state->crops);
+	if ((buffer_opt || autocrop) && even_y)
+		enforce_even_y(state->crops, state->n_crop);
+}
+
 // codes from assrender end here
 
 int main (int argc, char *argv[])
@@ -804,31 +966,27 @@ int main (int argc, char *argv[])
 	char *allow_empty_string = "0";
 	char *stricter_string = "0";
 	char *count_string = "2147483647";
-	char *in_img = NULL, *old_img = NULL, *tmp = NULL, *out_buf = NULL;
+	char *in_img = NULL, *xml_previous_img = NULL;
 	char *intc_buf = NULL, *outtc_buf = NULL;
 	char *drop_frame = NULL;
 	char png_dir[MAX_PATH + 1] = {0};
 	const char *additional_font_dir = NULL;
-	crop_t crops[2];
-	pic_t pic;
-	uint32_t *pal = NULL;
+	render_output_state_t sup_state = {0};
+	render_output_state_t xml_state = {0};
+	size_t image_size;
 	int out_filename_idx = 0;
 	int have_fps = 0;
-	int n_crop = 1;
 	int split_at = 0;
 	int min_split = 3;
 	int autocrop = 0;
 	int xo, yo, to;
 	int fps = 25;
-	int count_frames = INT_MAX, last_frame;
+	int count_frames = INT_MAX, requested_frames, last_frame, sample_last_frame, sample_frame_count;
 	int init_frame = 0;
 	int frames;
-	int first_frame = -1, start_frame = -1, end_frame = -1;
-	int num_of_events = 0;
+	int first_frame = -1, end_frame = -1;
 	int i, c, j;
-	int have_line = 0;
-	int must_zero = 0;
-	int checked_empty;
+	int xml_has_previous = 0;
 	int even_y = 0;
 	int auto_cut = 0;
 	int pal_png = 1;
@@ -842,6 +1000,8 @@ int main (int argc, char *argv[])
 	int allow_empty = 0;
 	int stricter = 0;
 	int xml_event_count = 0;
+	int sample_count = 0, sample_index;
+	render_sample_t *samples = NULL;
 	sup_writer_t *sw = NULL;
 	ass_input_t *ass_context;
 	stream_info_t *s_info = malloc(sizeof(stream_info_t));
@@ -1011,7 +1171,6 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "If more than one output filename is used, they must have\ndifferent output formats.\n");
 		exit(0);
 	}
-
 	/* Set X and Y offsets, and split value */
 	xo = parse_int(x_offset, "x-offset", NULL);
 	yo = parse_int(y_offset, "y-offset", NULL);
@@ -1024,6 +1183,7 @@ int main (int argc, char *argv[])
 	stricter = parse_int(stricter_string, "stricter", NULL);
 	init_frame = parse_int(seek_string, "seek", NULL);
 	count_frames = parse_int(count_string, "count", NULL);
+	requested_frames = count_frames;
 	min_split = parse_int(minimum_split, "min-split", NULL);
 	if (!min_split)
 		min_split = 1;
@@ -1100,10 +1260,6 @@ int main (int argc, char *argv[])
 
 	ass_set_fonts(ass_context->ass_renderer, NULL, NULL, ASS_FONTPROVIDER_AUTODETECT, NULL, 1);
 
-	in_img  = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char)); /* allocate + 16 for alignment, and + n * 16 for over read/write */
-	old_img = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char)); /* see above */
-	out_buf = calloc(s_info->i_width * s_info->i_height * 4 + 16 * 2, sizeof(char));
-
 	/* Check minimum size */
 	if (s_info->i_width < 8 || s_info->i_height < 8)
 	{
@@ -1111,44 +1267,67 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
+	image_size = (size_t)s_info->i_width * s_info->i_height * 4;
+	in_img = calloc(image_size + 16 * 2, sizeof(char));
+	if (sup_output)
+		sup_state.out_buf = calloc(image_size + 16 * 2, sizeof(char));
+	if (xml_output)
+	{
+		xml_state.out_buf = calloc(image_size + 16 * 2, sizeof(char));
+		xml_previous_img = calloc(image_size + 16 * 2, sizeof(char));
+	}
+	if (!in_img || (sup_output && !sup_state.out_buf) ||
+	    (xml_output && (!xml_state.out_buf || !xml_previous_img)))
+	{
+		fprintf(stderr, "Failed to allocate render buffers.\n");
+		return 1;
+	}
+
 	/* Align buffers */
-	in_img  = in_img + (short)(16 - ((long)in_img % 16));
-	old_img = old_img + (short)(16 - ((long)old_img % 16));
-	out_buf = out_buf + (short)(16 - ((long)out_buf % 16));
+	in_img += 16 - (uintptr_t)in_img % 16;
+	if (sup_output)
+		sup_state.out_buf += 16 - (uintptr_t)sup_state.out_buf % 16;
+	if (xml_output)
+	{
+		xml_state.out_buf += 16 - (uintptr_t)xml_state.out_buf % 16;
+		xml_previous_img += 16 - (uintptr_t)xml_previous_img % 16;
+	}
 
 	/* Set up buffer (non-)optimization */
 	buffer_opt = parse_int(buffer_optimize, "buffer-opt", NULL);
-	pic.b = out_buf;
-	pic.w = s_info->i_width;
-	pic.h = s_info->i_height;
-	pic.s = s_info->i_width;
-	n_crop = 1;
-	crops[0].x = 0;
-	crops[0].y = 0;
-	crops[0].w = pic.w;
-	crops[0].h = pic.h;
 
 	/* Get frame number */
 	frames = get_frame_total_ass(ass_context, s_info);
-	if (count_frames + init_frame > frames)
+	if (count_frames > frames - init_frame)
 	{
 		count_frames = frames - init_frame;
 	}
 	last_frame = count_frames + init_frame;
+	sample_last_frame = last_frame;
+	/* get_frame_total_ass truncates the final partial frame. SUP needs that
+	 * frame and the following range boundary to represent the exact ASS end. */
+	if (sup_output && ass_context->ass->n_events > 0 &&
+	    requested_frames > frames - init_frame && sample_last_frame < INT_MAX)
+		sample_last_frame++;
+	sample_frame_count = sample_last_frame - init_frame;
+	/* A SUP-only partial-frame sample must not make combined output create an
+	 * XML file when the original XML frame range is empty. */
+	if (xml_output && sup_output && count_frames < 1)
+		xml_output = 0;
 
 	/* No frames mean nothing to do */
-	if (count_frames < 1)
+	if (sample_frame_count < 1)
 	{
 		fprintf(stderr, "No frames found.\n");
 		return 0;
 	}
 
 	/* Set progress step */
-	if (count_frames < 1000)
+	if (sample_frame_count < 1000)
 	{
-		if (count_frames > 200)
+		if (sample_frame_count > 200)
 			progress_step = 50;
-		else if (count_frames > 50)
+		else if (sample_frame_count > 50)
 			progress_step = 10;
 		else
 			progress_step = 1;
@@ -1156,127 +1335,127 @@ int main (int argc, char *argv[])
 
 	/* Open SUP writer, if applicable */
 	if (sup_output)
-		sw = new_sup_writer(sup_output_fn, pic.w, pic.h, fps_num, fps_den);
+		sw = new_sup_writer(sup_output_fn, s_info->i_width, s_info->i_height, fps_num, fps_den);
+
+	samples = build_render_samples(ass_context->ass, init_frame, last_frame,
+	                               sample_last_frame, fps_num, fps_den, to,
+	                               sup_output, &sample_count);
+	if (!samples)
+	{
+		fprintf(stderr, "Failed to allocate render timeline.\n");
+		return 1;
+	}
 
 	int changed = 1;
 
-	/* Process frames */
-	for (i = init_frame; i < last_frame; i++)
+	/* Render the unified timeline once. SUP consumes every sample; XML keeps
+	 * independent state and consumes only its original video-frame samples. */
+	for (sample_index = 0; sample_index < sample_count; sample_index++)
 	{
-		long long ts = (long double)i * s_info->i_fps_den / s_info->i_fps_num * 1000;
+		render_sample_t *sample = samples + sample_index;
+		int64_t current_timestamp = sample->pts;
+		long long ts = sample->render_ms;
+		int empty;
+		i = sample->frame;
 
 		ASS_Image *img = ass_render_frame(ass_context->ass_renderer, ass_context->ass, ts, &changed);
-		memset(in_img, 0, s_info->i_width *s_info->i_height * 4);
+		memset(in_img, 0, image_size);
 		make_sub_img(img, in_img, s_info->i_width, s_info->i_height);
-
-		checked_empty = 0;
+		empty = is_empty(s_info, in_img);
 
 		/* Progress indicator */
-		if (i % (count_frames / progress_step) == 0)
+		if (sample->frame_sample && i % (sample_frame_count / progress_step) == 0)
 		{
-			fprintf(stderr, "\rProgress: %d/%d - Lines: %d", i - init_frame, count_frames, num_of_events);
+			int event_count = sup_output ? sup_state.event_count : xml_state.event_count;
+			fprintf(stderr, "\rProgress: %d/%d - Lines: %d", i - init_frame, sample_frame_count, event_count);
 		}
 
-		/* If we are outside any lines, check for empty frames first */
-		if (!have_line)
-		{
-			if (is_empty(s_info, in_img))
-				continue;
-			else
-				checked_empty = 1;
-		}
-
-		/* Check for duplicate, unless first frame */
-		if ((i != init_frame) && have_line && !changed)
-			continue;
-		/* Mark frames that were not used as new image in comparison to have transparent pixels zeroed */
-		else if (!(i && have_line))
-			must_zero = 1;
-
-		/* Not a dup, write end-of-line, if we had a line before */
-
-		if (have_line)
-		{
-			if (sup_output)
-			{
-				assert(pal != NULL);
-				write_sup_wrapper(sw, (uint8_t *)out_buf, n_crop, crops, pal, start_frame + to, i + to, split_at, min_split, stricter);
-				if (!xml_output)
-					free(pal);
-				pal = NULL;
-			}
-			if (xml_output)
-				add_event_xml(events, split_at, min_split, start_frame + to, i + to, n_crop, crops);
-			end_frame = i;
-			have_line = 0;
-		}
-
-		/* Check for empty frame, if we didn't before */
-		if (!checked_empty && is_empty(s_info, in_img))
-			continue;
-
-		/* Zero transparent pixels, if needed */
-		if (must_zero)
-			zero_transparent(s_info, in_img);
-		must_zero = 0;
-
-		/* Not an empty frame, start line */
-		have_line = 1;
-		start_frame = i;
-		swap_rb(s_info, in_img, out_buf);
-		if (buffer_opt)
-			n_crop = auto_split(pic, crops, ugly, even_y);
-		else if (autocrop)
-		{
-			crops[0].x = 0;
-			crops[0].y = 0;
-			crops[0].w = pic.w;
-			crops[0].h = pic.h;
-			auto_crop(pic, crops);
-		}
-		if ((buffer_opt || autocrop) && even_y)
-			enforce_even_y(crops, n_crop);
-		if ((pal_png || sup_output) && pal == NULL)
-			pal = palletize(out_buf, s_info->i_width, s_info->i_height);
-		if (xml_output)
-			for (j = 0; j < n_crop; j++)
-				write_png(png_dir, start_frame, (uint8_t *)out_buf, s_info->i_width, s_info->i_height, j, pal, crops[j]);
-		if (pal_png && xml_output && !sup_output)
-		{
-			free(pal);
-			pal = NULL;
-		}
-		num_of_events++;
-		if (first_frame == -1)
-			first_frame = i;
-
-		/* Save image for next comparison. */
-		tmp = in_img;
-		in_img = old_img;
-		old_img = tmp;
-	}
-
-	fprintf(stderr, "\rProgress: %d/%d - Lines: %d - Done\n", i - init_frame, count_frames, num_of_events);
-
-	/* Add last event, if available */
-	if (have_line)
-	{
 		if (sup_output)
 		{
-			assert(pal != NULL);
-			write_sup_wrapper(sw, (uint8_t *)out_buf, n_crop, crops, pal, start_frame + to, i - 1 + to, split_at, min_split, stricter);
-			if (!xml_output)
-				free(pal);
-			pal = NULL;
+			if (sup_state.have_line && changed)
+			{
+				assert(sup_state.pal != NULL);
+				write_sup_timestamp_wrapper(sw, (uint8_t *)sup_state.out_buf,
+				                            sup_state.n_crop, sup_state.crops, sup_state.pal,
+				                            sup_state.start_timestamp, current_timestamp,
+				                            split_at, min_split, stricter);
+				free(sup_state.pal);
+				sup_state.pal = NULL;
+				sup_state.have_line = 0;
+			}
+			if (!sup_state.have_line && !empty)
+			{
+				sup_state.have_line = 1;
+				sup_state.start_timestamp = current_timestamp;
+				prepare_output_image(&sup_state, s_info, in_img, buffer_opt, autocrop, ugly, even_y);
+				sup_state.pal = palletize(sup_state.out_buf, s_info->i_width, s_info->i_height);
+				sup_state.event_count++;
+			}
 		}
-		if (xml_output)
+
+		if (xml_output && sample->xml_frame)
 		{
-			add_event_xml(events, split_at, min_split, start_frame + to, i - 1 + to, n_crop, crops);
-			free(pal);
-			pal = NULL;
+			int xml_changed = !xml_has_previous ||
+			                  !images_identical_visible(s_info, in_img, xml_previous_img);
+
+			if (xml_state.have_line && xml_changed)
+			{
+				add_event_xml(events, split_at, min_split,
+				              xml_state.start_frame + to, i + to,
+				              xml_state.n_crop, xml_state.crops);
+				end_frame = i;
+				xml_state.have_line = 0;
+			}
+			if (!xml_state.have_line && !empty)
+			{
+				xml_state.have_line = 1;
+				xml_state.start_frame = i;
+				prepare_output_image(&xml_state, s_info, in_img, buffer_opt, autocrop, ugly, even_y);
+				if (pal_png)
+					xml_state.pal = palletize(xml_state.out_buf, s_info->i_width, s_info->i_height);
+				for (j = 0; j < xml_state.n_crop; j++)
+					write_png(png_dir, xml_state.start_frame, (uint8_t *)xml_state.out_buf,
+					          s_info->i_width, s_info->i_height, j,
+					          xml_state.pal, xml_state.crops[j]);
+				free(xml_state.pal);
+				xml_state.pal = NULL;
+				xml_state.event_count++;
+				if (first_frame == -1)
+					first_frame = i;
+			}
+
+			memcpy(xml_previous_img, in_img, image_size);
+			xml_has_previous = 1;
 		}
+	}
+	i = last_frame;
+	free(samples);
+	samples = NULL;
+
+	fprintf(stderr, "\rProgress: %d/%d - Lines: %d - Done\n",
+	        sample_frame_count, sample_frame_count,
+	        sup_output ? sup_state.event_count : xml_state.event_count);
+
+	if (sup_state.have_line)
+	{
+		assert(sup_state.pal != NULL);
+		write_sup_timestamp_wrapper(sw, (uint8_t *)sup_state.out_buf,
+		                            sup_state.n_crop, sup_state.crops, sup_state.pal,
+		                            sup_state.start_timestamp,
+		                            frame_timestamp(sample_last_frame + to, fps_num, fps_den),
+		                            split_at, min_split, stricter);
+		free(sup_state.pal);
+		sup_state.pal = NULL;
+	}
+
+	/* Preserve the original XML final-frame convention. */
+	if (xml_state.have_line)
+	{
+		add_event_xml(events, split_at, min_split,
+		              xml_state.start_frame + to, last_frame - 1 + to,
+		              xml_state.n_crop, xml_state.crops);
 		auto_cut = 1;
-		end_frame = i - 1;
+		end_frame = last_frame - 1;
 	}
 
 	if (sup_output)
@@ -1372,4 +1551,3 @@ int main (int argc, char *argv[])
 
 	return 0;
 }
-
