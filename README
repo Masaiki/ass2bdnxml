@@ -17,16 +17,16 @@ ASS/SSA event times are measured in time, while BDN XML event times are video
 frame numbers. XML and its PNG images therefore remain sampled only at video
 frame starts.
 
-SUP/PGS uses a 90 kHz clock. ass2bdnxml adds exact ASS event start and end times
-to the normal video-frame render timeline and writes SUP events at those exact
-timestamps. Static subtitles begin and end at their ASS timestamps, while the
-video-frame samples needed by moves, transforms, fades, karaoke, and overlapping
-events are retained.
+SUP/PGS output is frame-aligned by default for compatibility with existing
+output. Pass --sup-high-precision to add exact ASS event start and end times to
+the normal video-frame render timeline and write those boundaries in the SUP
+90 kHz clock. The video-frame samples needed by moves, transforms, fades,
+karaoke, and overlapping events are retained in both modes.
 
-When XML and SUP are requested together, libass renders their unified timeline
-once. SUP consumes every sample, while XML keeps independent state and consumes
-only video-frame samples. The -z/--stricter option only changes SUP buffer/epoch
-checks and does not change timing.
+When XML and SUP are requested together, libass renders their selected unified
+timeline once. SUP consumes every sample, while XML keeps independent state and
+consumes only video-frame samples. The -z/--stricter option only changes SUP
+buffer/epoch checks and does not change timing.
 
 1. Prepare subtitles. You can either produce subtitles in a normal format like
    ASS/SSA.

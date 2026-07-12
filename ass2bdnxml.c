@@ -490,6 +490,7 @@ void print_usage ()
 		"  -h, --help                   Show this help text\n"
 		"  -o, --output <string>        Output file (.xml, .sup, or .pgs)\n"
 		"                               May be used twice for XML+SUP/PGS output\n"
+		"      --sup-high-precision     Use exact ASS event times for SUP/PGS output\n"
 		"  -j, --seek <integer>         Start processing at this frame, first is 0\n"
 		"  -c, --count <integer>        Number of input frames to process\n"
 		"  -t, --trackname <string>     Name of track, like: Undefined\n"
@@ -671,6 +672,33 @@ void write_sup_timestamp_wrapper (sup_writer_t *sw, uint8_t *im, int num_crop, c
 		}
 		if (d)
 			write_sup_timestamp(sw, im, num_crop, crops, pal, start, start + d, stricter);
+	}
+}
+
+static void write_sup_frame_wrapper (sup_writer_t *sw, uint8_t *im, int num_crop, crop_t *crops, uint32_t *pal, int start, int end, int split_at, int min_split, int stricter)
+{
+	int d = end - start;
+
+	if (!split_at)
+		write_sup_timestamp(sw, im, num_crop, crops, pal,
+		                    frame_timestamp(start, sw->fps_num, sw->fps_den),
+		                    frame_timestamp(end, sw->fps_num, sw->fps_den), stricter);
+	else
+	{
+		while (d >= split_at + min_split)
+		{
+			d -= split_at;
+			write_sup_timestamp(sw, im, num_crop, crops, pal,
+			                    frame_timestamp(start, sw->fps_num, sw->fps_den),
+			                    frame_timestamp(start + split_at, sw->fps_num, sw->fps_den),
+			                    stricter);
+			start += split_at;
+		}
+		if (d)
+			write_sup_timestamp(sw, im, num_crop, crops, pal,
+			                    frame_timestamp(start, sw->fps_num, sw->fps_den),
+			                    frame_timestamp(start + d, sw->fps_num, sw->fps_den),
+			                    stricter);
 	}
 }
 
@@ -931,6 +959,7 @@ static void prepare_output_image (render_output_state_t *state, stream_info_t *s
 
 int main (int argc, char *argv[])
 {
+	enum { OPT_SUP_HIGH_PRECISION = 256 };
 	struct framerate_entry_s framerates[] = { {"23.976", "23.976", 24, 0, 24000, 1001}
 											/*, {"23.976d", "23.976", 24000/1001.0, 1}*/
 											, {"24", "24", 24, 0, 24, 1}
@@ -996,6 +1025,7 @@ int main (int argc, char *argv[])
 	long long bench_start = time(NULL);
 	int fps_num = 25, fps_den = 1;
 	int sup_output = 0;
+	int sup_high_precision = 0;
 	int xml_output = 0;
 	int allow_empty = 0;
 	int stricter = 0;
@@ -1019,6 +1049,7 @@ int main (int argc, char *argv[])
 	{
 		static struct option long_options[] =
 			{ {"output",       required_argument, 0, 'o'}
+			, {"sup-high-precision", no_argument, 0, OPT_SUP_HIGH_PRECISION}
 			, {"seek",         required_argument, 0, 'j'}
 			, {"count",        required_argument, 0, 'c'}
 			, {"trackname",    required_argument, 0, 't'}
@@ -1056,6 +1087,9 @@ int main (int argc, char *argv[])
 						fprintf(stderr, "No more than two output filenames allowed.\nIf more than one is used, the other must have a\ndifferent output format.\n");
 						exit(0);
 					}
+					break;
+				case OPT_SUP_HIGH_PRECISION:
+					sup_high_precision = 1;
 					break;
 				case 'j':
 					seek_string = optarg;
@@ -1304,9 +1338,9 @@ int main (int argc, char *argv[])
 	}
 	last_frame = count_frames + init_frame;
 	sample_last_frame = last_frame;
-	/* get_frame_total_ass truncates the final partial frame. SUP needs that
-	 * frame and the following range boundary to represent the exact ASS end. */
-	if (sup_output && ass_context->ass->n_events > 0 &&
+	/* get_frame_total_ass truncates the final partial frame. High-precision SUP
+	 * needs that frame and the following boundary to represent the exact end. */
+	if (sup_output && sup_high_precision && ass_context->ass->n_events > 0 &&
 	    requested_frames > frames - init_frame && sample_last_frame < INT_MAX)
 		sample_last_frame++;
 	sample_frame_count = sample_last_frame - init_frame;
@@ -1339,7 +1373,7 @@ int main (int argc, char *argv[])
 
 	samples = build_render_samples(ass_context->ass, init_frame, last_frame,
 	                               sample_last_frame, fps_num, fps_den, to,
-	                               sup_output, &sample_count);
+	                               sup_output && sup_high_precision, &sample_count);
 	if (!samples)
 	{
 		fprintf(stderr, "Failed to allocate render timeline.\n");
@@ -1375,10 +1409,16 @@ int main (int argc, char *argv[])
 			if (sup_state.have_line && changed)
 			{
 				assert(sup_state.pal != NULL);
-				write_sup_timestamp_wrapper(sw, (uint8_t *)sup_state.out_buf,
-				                            sup_state.n_crop, sup_state.crops, sup_state.pal,
-				                            sup_state.start_timestamp, current_timestamp,
-				                            split_at, min_split, stricter);
+				if (sup_high_precision)
+					write_sup_timestamp_wrapper(sw, (uint8_t *)sup_state.out_buf,
+					                            sup_state.n_crop, sup_state.crops, sup_state.pal,
+					                            sup_state.start_timestamp, current_timestamp,
+					                            split_at, min_split, stricter);
+				else
+					write_sup_frame_wrapper(sw, (uint8_t *)sup_state.out_buf,
+					                        sup_state.n_crop, sup_state.crops, sup_state.pal,
+					                        sup_state.start_frame + to, i + to,
+					                        split_at, min_split, stricter);
 				free(sup_state.pal);
 				sup_state.pal = NULL;
 				sup_state.have_line = 0;
@@ -1386,6 +1426,7 @@ int main (int argc, char *argv[])
 			if (!sup_state.have_line && !empty)
 			{
 				sup_state.have_line = 1;
+				sup_state.start_frame = i;
 				sup_state.start_timestamp = current_timestamp;
 				prepare_output_image(&sup_state, s_info, in_img, buffer_opt, autocrop, ugly, even_y);
 				sup_state.pal = palletize(sup_state.out_buf, s_info->i_width, s_info->i_height);
@@ -1439,11 +1480,18 @@ int main (int argc, char *argv[])
 	if (sup_state.have_line)
 	{
 		assert(sup_state.pal != NULL);
-		write_sup_timestamp_wrapper(sw, (uint8_t *)sup_state.out_buf,
-		                            sup_state.n_crop, sup_state.crops, sup_state.pal,
-		                            sup_state.start_timestamp,
-		                            frame_timestamp(sample_last_frame + to, fps_num, fps_den),
-		                            split_at, min_split, stricter);
+		if (sup_high_precision)
+			write_sup_timestamp_wrapper(sw, (uint8_t *)sup_state.out_buf,
+			                            sup_state.n_crop, sup_state.crops, sup_state.pal,
+			                            sup_state.start_timestamp,
+			                            frame_timestamp(sample_last_frame + to,
+			                                            fps_num, fps_den),
+			                            split_at, min_split, stricter);
+		else
+			write_sup_frame_wrapper(sw, (uint8_t *)sup_state.out_buf,
+			                        sup_state.n_crop, sup_state.crops, sup_state.pal,
+			                        sup_state.start_frame + to, last_frame - 1 + to,
+			                        split_at, min_split, stricter);
 		free(sup_state.pal);
 		sup_state.pal = NULL;
 	}

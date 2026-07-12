@@ -81,14 +81,38 @@ try {
         throw "Default conversion failed with exit code $LASTEXITCODE"
     }
 
-    $expectedPts = @(
+    $frameAlignedPts = @(
+        82583, 228979, 379129, 581831, 735735, 908408, 1058558
+    )
+    Assert-EqualPts (Read-PcsPts $defaultOutput) $frameAlignedPts 'default SUP'
+
+    $defaultSplitOutput = Join-Path $tempDir 'default-split.sup'
+    & $Executable -v '1440*1080' -f '23.976' -s 1 -m 1 `
+        -o $defaultSplitOutput $fixture | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Default split conversion failed with exit code $LASTEXITCODE"
+    }
+    $defaultSplitPts = Read-PcsPts $defaultSplitOutput
+    Assert-EqualPts $defaultSplitPts[0..2] @(82583, 86336, 90090) `
+        'default split frame grid'
+
+    $highPrecisionOutput = Join-Path $tempDir 'high-precision.sup'
+    & $Executable --sup-high-precision -v '1440*1080' -f '23.976' `
+        -o $highPrecisionOutput $fixture | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "High-precision conversion failed with exit code $LASTEXITCODE"
+    }
+
+    $highPrecisionPts = @(
         79200, 228600, 377100, 579600, 734400, 906300, 1064700
     )
-    Assert-EqualPts (Read-PcsPts $defaultOutput) $expectedPts 'default SUP'
+    Assert-EqualPts (Read-PcsPts $highPrecisionOutput) $highPrecisionPts `
+        'high-precision SUP'
 
     $animationFixture = Join-Path $fixturesDir 'issue-6-animation.ass'
     $animationOutput = Join-Path $tempDir 'animation.sup'
-    & $Executable -v '1440*1080' -f '23.976' -o $animationOutput $animationFixture | Out-Null
+    & $Executable --sup-high-precision -v '1440*1080' -f '23.976' `
+        -o $animationOutput $animationFixture | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Animation conversion failed with exit code $LASTEXITCODE"
     }
@@ -103,7 +127,8 @@ try {
 
     $gapFixture = Join-Path $fixturesDir 'issue-6-gap.ass'
     $gapOutput = Join-Path $tempDir 'gap.sup'
-    & $Executable -v '1440*1080' -f '23.976' -o $gapOutput $gapFixture | Out-Null
+    & $Executable --sup-high-precision -v '1440*1080' -f '23.976' `
+        -o $gapOutput $gapFixture | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Gap conversion failed with exit code $LASTEXITCODE"
     }
@@ -124,15 +149,35 @@ try {
         throw "XML-only conversion failed with exit code $LASTEXITCODE"
     }
 
-    & $Executable -v '1440*1080' -f '23.976' -o $combinedXmlOutput -o $combinedSupOutput $fixture | Out-Null
+    & $Executable --sup-high-precision -v '1440*1080' -f '23.976' `
+        -o $combinedXmlOutput -o $combinedSupOutput $fixture | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Combined conversion failed with exit code $LASTEXITCODE"
     }
 
     Assert-FileHashEqual $xmlOnlyOutput $combinedXmlOutput 'XML-only and combined XML'
     Assert-PngSetsEqual $xmlOnlyDir $combinedDir
-    Assert-EqualPts (Read-PcsPts $combinedSupOutput) $expectedPts 'combined SUP'
-    Assert-FileHashEqual $defaultOutput $combinedSupOutput 'SUP-only and combined SUP'
+    Assert-EqualPts (Read-PcsPts $combinedSupOutput) $highPrecisionPts 'combined SUP'
+    Assert-FileHashEqual $highPrecisionOutput $combinedSupOutput `
+        'High-precision SUP-only and combined SUP'
+
+    $defaultCombinedDir = Join-Path $tempDir 'default-combined'
+    New-Item -ItemType Directory -Path $defaultCombinedDir | Out-Null
+    $defaultCombinedXml = Join-Path $defaultCombinedDir 'output.xml'
+    $defaultCombinedSup = Join-Path $defaultCombinedDir 'output.sup'
+    & $Executable -v '1440*1080' -f '23.976' `
+        -o $defaultCombinedXml -o $defaultCombinedSup $fixture | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Default combined conversion failed with exit code $LASTEXITCODE"
+    }
+
+    Assert-FileHashEqual $xmlOnlyOutput $defaultCombinedXml `
+        'XML-only and default combined XML'
+    Assert-PngSetsEqual $xmlOnlyDir $defaultCombinedDir
+    Assert-EqualPts (Read-PcsPts $defaultCombinedSup) $frameAlignedPts `
+        'default combined SUP'
+    Assert-FileHashEqual $defaultOutput $defaultCombinedSup `
+        'Default SUP-only and combined SUP'
 
     $customFpsXmlOnlyDir = Join-Path $tempDir 'custom-fps-xml-only'
     $customFpsCombinedDir = Join-Path $tempDir 'custom-fps-combined'
@@ -146,7 +191,7 @@ try {
         throw "Custom-FPS XML-only conversion failed with exit code $LASTEXITCODE"
     }
 
-    & $Executable -v '1440*1080' -f '7708/133' `
+    & $Executable --sup-high-precision -v '1440*1080' -f '7708/133' `
         -o $customFpsCombinedXml -o $customFpsCombinedSup $fixture | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Custom-FPS combined conversion failed with exit code $LASTEXITCODE"
@@ -165,7 +210,7 @@ try {
         throw "Empty-range XML-only conversion failed with exit code $LASTEXITCODE"
     }
 
-    & $Executable -v '1440*1080' -f '23.976' -j 28 -n 1 `
+    & $Executable --sup-high-precision -v '1440*1080' -f '23.976' -j 28 -n 1 `
         -o $emptyRangeCombined -o $emptyRangeSup $gapFixture | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Empty-range combined conversion failed with exit code $LASTEXITCODE"
@@ -180,14 +225,8 @@ try {
     }
 
     $helpText = (& $Executable --help 2>&1 | Out-String)
-    if ($helpText -match 'sup-high-precision') {
-        throw 'Removed --sup-high-precision option is still present in help output'
-    }
-
-    $removedOptionOutput = Join-Path $tempDir 'removed-option.sup'
-    & $Executable --sup-high-precision -o $removedOptionOutput $fixture 2>$null | Out-Null
-    if (Test-Path -LiteralPath $removedOptionOutput) {
-        throw 'Removed --sup-high-precision option still generated output'
+    if ($helpText -notmatch 'sup-high-precision') {
+        throw '--sup-high-precision option is missing from help output'
     }
 }
 finally {
